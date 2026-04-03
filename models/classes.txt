@@ -1,0 +1,8 @@
+1
+2
+3
+4
+5
+bean_type1
+bean_type2
+bean_type3

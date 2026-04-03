@@ -1,0 +1,83 @@
+# Visual Studio files
+.vs/
+.vscode/
+*.sln
+*.vcxproj
+*.vcxproj.filters
+*.vcxproj.user
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+
+# Build outputs
+out/
+build/
+x64/
+x86/
+bin/
+obj/
+Debug/
+Release/
+*.exe
+*.dll
+*.lib
+*.exp
+*.pdb
+*.ilk
+*.ipch
+*.iobj
+*.ipdb
+*.cache
+*.tlog
+*.lastbuildstate
+
+# CMake
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+Makefile
+*.cmake
+install_manifest.txt
+compile_commands.json
+CTestTestfile.cmake
+Testing/
+
+# Vcpkg
+vcpkg_installed/
+vcpkg_scripts/
+
+# Dataset (optional - include if you don't want to track generated dataset)
+dataset/images/
+dataset/labels/
+
+# Models (optional - include if you don't want to track model files)
+models/yolov11.onnx
+
+# IDE specific files
+.idea/
+*.swp
+*.swo
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Temporary files
+*.tmp
+*.temp
+*~
+*.bak
+*.backup
+
+# Logs
+*.log
+*.log.*
+
+# Claude Code
+.claude/
