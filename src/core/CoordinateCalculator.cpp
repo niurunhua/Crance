@@ -3,7 +3,6 @@
 #include <cmath>
 #include <iostream>
 
-// 构造函数
 CoordinateCalculator::CoordinateCalculator()
     : m_imageWidth(640)
     , m_imageHeight(480)
