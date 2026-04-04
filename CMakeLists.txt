@@ -3,6 +3,7 @@ project(YOLOv11_Async_Detection CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
+add_compile_options(/utf-8)
 
 # Find OpenCV
 find_package(OpenCV REQUIRED)
@@ -12,12 +13,16 @@ include_directories(${OpenCV_INCLUDE_DIRS})
 
 # Source files
 set(SOURCES
-    src/main.cpp
-    src/FrameQueue.cpp
-    src/Detector.cpp
-    src/Tracker.cpp
-    src/SerialPort.cpp
-    src/AutoLabeler.cpp
+    src/core/main.cpp
+    src/core/FrameQueue.cpp
+    src/vision/Detector.cpp
+    src/vision/Tracker.cpp
+    src/io/SerialPort.cpp
+    src/vision/AutoLabeler.cpp
+    src/vision/CameraManager.cpp
+    src/vision/ContourProcessor.cpp
+    src/core/CoordinateCalculator.cpp
+    src/io/DataTransmitter.cpp
 )
 
 # Add executable

@@ -6,7 +6,7 @@
 #include <string>
 #include "Detector.h"
 
-class AutoLabeler {
+class AutoLabeler { 
 public:
     AutoLabeler(const std::string& outputDir = "dataset",
                 float confidenceThreshold = 0.85f);

@@ -17,7 +17,7 @@ public:
     /**
      * @brief Push a frame into the queue.
      * @param frame The frame to push.
-     * @return true if successful, false if queue is full and cannot wait.
+     * @return true if successful, false if queue is full and cannot wait. 
      */
     bool push(const cv::Mat& frame);
 

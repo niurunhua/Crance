@@ -7,10 +7,10 @@
 
 struct TrackedObject {
     int classId;
-    cv::Point2f filteredCenter; // after low-pass filter
+    cv::Point2f filteredCenter; // 低通滤波后的中心点
     cv::Point2f rawCenter;
     float confidence;
-    int lostCounter; // frames since last detection
+    int lostCounter; // 自上次检测以来的帧数
 };
 
 class Tracker {
@@ -21,7 +21,7 @@ public:
     /**
      * @brief Update tracker with new detections.
      * @param detections List of detections from current frame.
-     * @param frameSize Size of the frame (used for offset calculation).
+     * @param frameSize Size of the frame (used for offset calculation). 
      * @return true if a target is being tracked (including buffered).
      */
     bool update(const std::vector<Detection>& detections, const cv::Size& frameSize);
@@ -53,9 +53,9 @@ private:
     cv::Size m_frameSize;
     float m_filterAlpha;
     int m_lostBufferFrames;
-    int m_lostCounter; // frames since last detection
+    int m_lostCounter; // 自上次检测以来的帧数
 
-    // Select primary target from detections (closest to center)
+    // 从检测中选择主要目标（离中心最近）
     bool selectPrimaryTarget(const std::vector<Detection>& detections, Detection& primary);
 };
 

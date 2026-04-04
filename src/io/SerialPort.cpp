@@ -19,7 +19,7 @@ SerialPort::~SerialPort() {
 bool SerialPort::open(const std::string& portName, int baudRate) {
     if (isOpen()) {
         close();
-    }
+    } 
 
 #ifdef _WIN32
     // Windows implementation

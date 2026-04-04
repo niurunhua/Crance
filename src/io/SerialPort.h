@@ -20,7 +20,7 @@ public:
     /**
      * @brief Close serial port.
      */
-    void close();
+    void close(); 
 
     /**
      * @brief Check if port is open.

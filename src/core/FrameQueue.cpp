@@ -15,7 +15,7 @@ bool FrameQueue::push(const cv::Mat& frame) {
     lock.unlock();
     m_condNotEmpty.notify_one();
     return true;
-}
+} 
 
 bool FrameQueue::pop(cv::Mat& frame) {
     std::unique_lock<std::mutex> lock(m_mutex);

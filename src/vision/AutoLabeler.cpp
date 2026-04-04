@@ -1,10 +1,10 @@
 #include "AutoLabeler.h"
-#include "Config.h"
+#include "../core/Config.h"
 #include <fstream>
 #include <iostream>
 #include <sys/stat.h> // for mkdir
 #include <chrono>
-#include <sstream>
+#include <sstream> 
 #include <iomanip>
 
 #ifdef _WIN32

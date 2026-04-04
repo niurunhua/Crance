@@ -1,5 +1,5 @@
 #include "Tracker.h"
-#include "Config.h"
+#include "../core/Config.h"
 #include <cmath>
 #include <limits>
 
@@ -20,11 +20,11 @@ void Tracker::reset() {
     m_frameSize = cv::Size(0, 0);
 }
 
-bool Tracker::selectPrimaryTarget(const std::vector<Detection>& detections, Detection& primary) {
+bool Tracker::selectPrimaryTarget(const std::vector<Detection>& detections, Detection& primary) { 
     if (detections.empty()) {
         return false;
     }
-    // Choose detection closest to screen center
+    // 选择离屏幕中心最近的检测目标
     float minDist = std::numeric_limits<float>::max();
     int bestIdx = -1;
     const cv::Point2f screenCenter(m_frameSize.width / 2.0f, m_frameSize.height / 2.0f);
@@ -49,16 +49,16 @@ bool Tracker::update(const std::vector<Detection>& detections, const cv::Size& f
     bool detected = selectPrimaryTarget(detections, primary);
 
     if (detected) {
-        // Reset lost counter
+        // 重置丢失计数器
         m_lostCounter = 0;
         m_tracked.lostCounter = 0;
         m_tracked.classId = primary.classId;
         m_tracked.confidence = primary.confidence;
         m_tracked.rawCenter = primary.center;
 
-        // Apply low-pass filter to center
+        // 对中心点应用低通滤波器
         if (m_tracked.filteredCenter.x == 0 && m_tracked.filteredCenter.y == 0) {
-            // First detection, initialize filter
+            // 首次检测，初始化滤波器
             m_tracked.filteredCenter = primary.center;
         } else {
             m_tracked.filteredCenter.x = m_filterAlpha * primary.center.x + (1 - m_filterAlpha) * m_tracked.filteredCenter.x;
@@ -66,14 +66,14 @@ bool Tracker::update(const std::vector<Detection>& detections, const cv::Size& f
         }
         return true;
     } else {
-        // No detection, increment lost counter
+        // 无检测，增加丢失计数器
         m_lostCounter++;
         m_tracked.lostCounter = m_lostCounter;
-        // If within buffer frames, still consider as tracked (using last filtered center)
+        // 在缓冲帧数内，仍视为跟踪中（使用上次滤波中心）
         if (m_lostCounter <= m_lostBufferFrames) {
             return true;
         } else {
-            // Lost beyond buffer, reset
+            // 丢失超出缓冲，重置
             reset();
             return false;
         }
