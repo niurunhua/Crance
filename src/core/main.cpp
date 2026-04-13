@@ -15,15 +15,7 @@ void signalHandler(int signal) {
     g_running = false;
 }
 
-/**
- * 主函数
- *
- * 程序流程：
- * 1. 初始化相机
- * 2. 启动相机处理线程
- * 3. 主循环：显示结果、处理用户输入
- * 4. 清理资源
- */
+
 int main(int argc, char** argv) {
     // 设置控制台编码为UTF-8
     system("chcp 65001");
@@ -103,7 +95,7 @@ int main(int argc, char** argv) {
         if (digitHealthy && hasDigit) {
             // 相机健康且抓到了帧，无论检测是否成功都显示图像
             if (!digitResult.frame.empty()) {
-                digitDisplay = digitResult.frame.clone();
+                digitDisplay = digitResult.frame;  // 不clone，直接引用
             } else {
                 // 保底创建黑底图像
                 digitDisplay = cv::Mat::zeros(Config::INPUT_HEIGHT, Config::INPUT_WIDTH, CV_8UC3);
@@ -141,7 +133,7 @@ int main(int argc, char** argv) {
         if (beanHealthy && hasBean) {
             // 相机健康且抓到了帧，无论检测是否成功都显示图像
             if (!beanResult.frame.empty()) {
-                beanDisplay = beanResult.frame.clone();
+                beanDisplay = beanResult.frame;  // 不clone，直接引用
             } else {
                 // 保底：创建黑底图像
                 beanDisplay = cv::Mat::zeros(Config::INPUT_HEIGHT, Config::INPUT_WIDTH, CV_8UC3);
@@ -209,9 +201,6 @@ int main(int argc, char** argv) {
             }
             std::cout << "截取当前帧: " << filename << std::endl;
         }
-
-        // 降低CPU占用
-        std::this_thread::sleep_for(std::chrono::milliseconds(10));
     }
 
     // 停止相机管理器

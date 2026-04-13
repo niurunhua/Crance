@@ -109,32 +109,13 @@ uint8_t DataTransmitter::calculateChecksum(const uint8_t* data, size_t length) c
     return sum;
 }
 
-// 打印数据包到终端
+// 打印数据包到终端（仅在调试模式下使用）
 void DataTransmitter::printToTerminal(const DataPacket& packet, const std::vector<uint8_t>& hexData) const {
-    // 获取易读的信息
-    std::string sourceName = getSourceName(packet.sourceId);
-    std::string className = getClassName(packet.sourceId, packet.classId);
-
-    // 构建十六进制字符串
-    std::stringstream hexStream;
-    hexStream << std::hex << std::uppercase << std::setfill('0');
-    for (size_t i = 0; i < hexData.size(); ++i) {
-        hexStream << std::setw(2) << static_cast<int>(hexData[i]);
-        if (i < hexData.size() - 1) {
-            hexStream << " ";
-        }
-    }
-
-    // 打印信息
-    if (!m_serialConnected) {
-        std::cout << "[串口离线] ";
-    } else if (m_debugMode) {
-        std::cout << "[调试模式] ";
-    }
-
-    std::cout << sourceName << " (" << className << ") "
-              << "发送坐标 dx: " << packet.dx << ", dy: " << packet.dy
-              << ", Hex: " << hexStream.str() << std::endl;
+    // 不打印，避免阻塞
+    // 如需调试，取消下面的注释
+    /*
+    std::cout << "dx:" << packet.dx << " dy:" << packet.dy << std::endl;
+    */
 }
 
 // 获取数据源名称

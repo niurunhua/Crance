@@ -2,6 +2,7 @@
 #include "Detector.h"
 #include "../io/DataTransmitter.h"
 #include "ContourProcessor.h"
+#include "AutoLabeler.h"
 #include "../core/CoordinateCalculator.h"
 #include "../core/Config.h"
 
@@ -61,6 +62,19 @@ bool CameraManager::init(const CameraConfig& digitConfig, const CameraConfig& be
         std::cout << "串口初始化失败，将使用终端输出" << std::endl;
     }
 
+    // 初始化自动标注器
+    std::cout << "=== 检查自动标注配置 ===" << std::endl;
+    std::cout << "AUTO_LABEL_ENABLED = " << Config::AUTO_LABEL_ENABLED << std::endl;
+    if (Config::AUTO_LABEL_ENABLED) {
+        m_autoLabeler = std::make_unique<AutoLabeler>(
+            Config::AUTO_LABEL_OUTPUT_DIR,
+            Config::AUTO_LABEL_CONFIDENCE
+        );
+        std::cout << ">>> 自动标注已启用，输出目录: " << Config::AUTO_LABEL_OUTPUT_DIR << std::endl;
+    } else {
+        std::cout << ">>> 自动标注未启用" << std::endl;
+    }
+
 
     // 检查是否有至少一个相机可用
     if (!m_digitConfig.enabled && !m_beanConfig.enabled) {
@@ -93,7 +107,8 @@ bool CameraManager::initCamera(CameraConfig& config) {
             Config::NETWORK_WIDTH,
             Config::NETWORK_HEIGHT,
             Config::CONFIDENCE_THRESHOLD,
-            Config::NMS_THRESHOLD
+            Config::NMS_THRESHOLD,
+            false  // 所有相机都不使用白纸检测，直接全图推理
         );
 
         if (!detector->init()) {
@@ -193,9 +208,9 @@ void CameraManager::cameraThreadFunc(CameraConfig config) {
 
         std::cout << "  相机已打开，进行暖机初始化..." << std::endl;
 
-        // 设置相机参数
-        cap.set(cv::CAP_PROP_FRAME_WIDTH, Config::INPUT_WIDTH);
-        cap.set(cv::CAP_PROP_FRAME_HEIGHT, Config::INPUT_HEIGHT);
+        // 不强制设置分辨率，使用相机原生分辨率
+        // cap.set(cv::CAP_PROP_FRAME_WIDTH, Config::INPUT_WIDTH);
+        // cap.set(cv::CAP_PROP_FRAME_HEIGHT, Config::INPUT_HEIGHT);
 
         // 关闭自动曝光，设置短曝光时间（根除运动模糊）
         cap.set(cv::CAP_PROP_AUTO_EXPOSURE, 0.25); // 手动曝光模式
@@ -268,145 +283,94 @@ void CameraManager::cameraThreadFunc(CameraConfig config) {
     // 帧计数器（用于降帧处理）
     int frameCounter = 0;
     cv::Mat frame;
-    CameraResult result;
+    cv::Mat displayFrame;  // 用于显示的帧
 
+    // 上一帧的检测结果（用于显示稳定性）
+    CameraResult lastResult;
 
     std::cout << "相机线程 " << (config.type == CAMERA_DIGIT ? "数字" : "豆子")
               << " 开始运行" << std::endl;
-
-    // 异步处理相关变量
-    std::future<bool> processingFuture;
-    CameraResult asyncResult;
-    bool processingInProgress = false;
-    cv::Mat frameForProcessing;
 
     // FPS计算变量
     auto lastFpsTime = std::chrono::steady_clock::now();
     int fpsFrameCount = 0;
     double currentFps = 0.0;
 
-    // 处理间隔控制变量（防止过度推理）
-    auto lastProcessTime = std::chrono::steady_clock::now();
-    const std::chrono::milliseconds processInterval(30); // 30毫秒处理间隔，约33Hz
+    // 保存上一次检测结果
+    std::vector<Detection> lastDetections;
+    int noDetectionFrames = 0;  // 连续未检测到的帧数
+    const int maxNoDetectionFrames = 5;  // 5次推理(约1秒)后清除旧框
 
     while (m_running) {
-        // 重置结果变量
-        result = CameraResult();
-        // 开始FPS计时
-        auto frameStartTime = std::chrono::steady_clock::now();
-
-        // 抓取帧（不等待，立即读取最新帧）
+        // 抓取帧
         cap >> frame;
         if (frame.empty()) {
             std::this_thread::sleep_for(std::chrono::milliseconds(1));
             continue;
         }
 
-        // 调整尺寸
-        if (frame.size() != cv::Size(Config::INPUT_WIDTH, Config::INPUT_HEIGHT)) {
-            cv::resize(frame, frame, cv::Size(Config::INPUT_WIDTH, Config::INPUT_HEIGHT));
-        }
+        displayFrame = frame;
 
-        // 更新最新帧缓存（零延迟丢帧机制）
-        {
-            std::lock_guard<std::mutex> lock(config.type == CAMERA_DIGIT ? m_digitFrameMutex : m_beanFrameMutex);
-            if (config.type == CAMERA_DIGIT) {
-                m_latestFrameDigit = frame.clone();
-            } else {
-                m_latestFrameBean = frame.clone();
-            }
-        }
-
-        // 降帧处理（豆子相机）
-        if (config.type == CAMERA_BEAN && config.skipFrames > 0) {
-            if (frameCounter % (config.skipFrames + 1) != 0) {
-                frameCounter++;
-                continue; // 跳过此帧
-            }
-        }
-
-        // 检查之前的异步处理是否完成
-        if (processingInProgress) {
-            if (processingFuture.valid() &&
-                processingFuture.wait_for(std::chrono::milliseconds(0)) == std::future_status::ready) {
-                // 异步处理完成，获取结果
-                bool processed = processingFuture.get();
-                processingInProgress = false;
-
-                // 使用异步处理结果
-                asyncResult.fps = currentFps;
-                result = asyncResult;
-            }
-        }
-
-        // 源头保底：无论是否处理，都确保UI端能拿到这帧画面
-        result.frame = frame.clone();
-
-        // 检查是否需要进行YOLO推理（基于时间间隔）
-        auto currentTime = std::chrono::steady_clock::now();
-        auto timeSinceLastProcess = std::chrono::duration_cast<std::chrono::milliseconds>(currentTime - lastProcessTime);
-
-        if (timeSinceLastProcess >= processInterval && !processingInProgress) {
-            // 启动异步YOLO推理任务
-            processingInProgress = true;
-            frameForProcessing = frame.clone(); // 复制帧用于异步处理
-
-            // 启动异步任务
-            processingFuture = std::async(std::launch::async, [this, config, frameForProcessing, &asyncResult]() mutable {
-                // 在线程中处理帧
-                return this->processFrame(config, frameForProcessing, asyncResult);
-            });
-
-            lastProcessTime = currentTime;
-        } else if (!processingInProgress) {
-            // 跳过YOLO推理，只传递原始帧，清空检测结果
-            result.success = false;
-            result.classIds.clear();
-            result.confidences.clear();
-            result.centers.clear();
-            result.contours.clear();
-            result.dx = 0;
-            result.dy = 0;
-            // 注意：保留之前的stableClassId和fps
-        }
-        // 如果processingInProgress为true且未完成，则使用上一次的结果（或空结果）
-
-        // 更新结果（无论检测是否成功，都要传递图像）
-        {
-            std::lock_guard<std::mutex> lock(
-                config.type == CAMERA_DIGIT ? m_digitMutex : m_beanMutex
-            );
-
-            if (config.type == CAMERA_DIGIT) {
-                m_digitResult = result;
-            } else {
-                m_beanResult = result;
-            }
-        }
-
-        // 结束FPS计时并计算FPS
-        auto frameEndTime = std::chrono::steady_clock::now();
+        // 计算FPS
         fpsFrameCount++;
-
-        // 每秒计算一次FPS
-        auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(frameEndTime - lastFpsTime);
+        auto currentTime = std::chrono::steady_clock::now();
+        auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(currentTime - lastFpsTime);
         if (elapsed.count() >= 1000) {
             currentFps = fpsFrameCount * 1000.0 / elapsed.count();
             fpsFrameCount = 0;
-            lastFpsTime = frameEndTime;
+            lastFpsTime = currentTime;
         }
 
-        result.fps = currentFps;
+        // 每6帧推理1次（两个相机推理不同任务，无需互斥锁）
+        if (frameCounter % 6 == 0 && detector) {
+            std::vector<Detection> detections;
+            detector->detect(displayFrame, detections);
+            if (!detections.empty()) {
+                lastDetections = detections;
+                noDetectionFrames = 0;  // 检测成功，重置计数器
+
+                // 自动标注（仅豆子相机）
+                if (config.type == CAMERA_BEAN && m_autoLabeler) {
+                    int saved = m_autoLabeler->process(displayFrame, detections);
+                    if (saved > 0) {
+                        std::cout << "[自动标注] 保存了 " << saved << " 个检测" << std::endl;
+                    }
+                }
+            } else {
+                noDetectionFrames++;
+                // 连续多帧未检测到，清除旧框
+                if (noDetectionFrames >= maxNoDetectionFrames / 10) {
+                    lastDetections.clear();
+                }
+            }
+        }
+
+        // 绘制上一次检测结果
+        if (!lastDetections.empty()) {
+            detector->drawDetections(displayFrame, lastDetections);
+            const auto& det = lastDetections[0];
+            if (m_transmitter) {
+                DataPacket packet;
+                packet.sourceId = config.sourceId;
+                packet.classId = det.classId;
+                packet.dx = static_cast<int16_t>(det.center.x - Config::SCREEN_CENTER_X);
+                packet.dy = static_cast<int16_t>(det.center.y - Config::SCREEN_CENTER_Y);
+                m_transmitter->sendPacket(packet);
+            }
+        }
+
+        // 更新显示
+        if (config.type == CAMERA_DIGIT) {
+            std::lock_guard<std::mutex> lock(m_digitMutex);
+            m_digitResult.frame = displayFrame;
+            m_digitResult.fps = currentFps;
+        } else {
+            std::lock_guard<std::mutex> lock(m_beanMutex);
+            m_beanResult.frame = displayFrame;
+            m_beanResult.fps = currentFps;
+        }
 
         frameCounter++;
-
-        // 防止CPU占用过高（已通过处理间隔控制，这里可以移除sleep）
-        // std::this_thread::sleep_for(std::chrono::milliseconds(1));
-    }
-
-    // 等待可能的异步处理完成
-    if (processingInProgress && processingFuture.valid()) {
-        processingFuture.wait();
     }
 
     cap.release();
@@ -450,6 +414,9 @@ bool CameraManager::processFrame(const CameraConfig& config, const cv::Mat& fram
         detector->detect(result.frame, detections);
 
         if (!detections.empty()) {
+            // 绘制检测框
+            detector->drawDetections(result.frame, detections);
+
             // 使用第一个检测结果
             const auto& det = detections[0];
             result.classIds.push_back(det.classId);
@@ -468,6 +435,9 @@ bool CameraManager::processFrame(const CameraConfig& config, const cv::Mat& fram
         detector->detect(result.frame, detections);
 
         if (!detections.empty()) {
+            // 绘制检测框
+            detector->drawDetections(result.frame, detections);
+
             // 使用第一个检测结果
             const auto& det = detections[0];
             result.classIds.push_back(det.classId);

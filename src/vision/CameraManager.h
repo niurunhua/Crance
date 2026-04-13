@@ -13,6 +13,7 @@
 // 前向声明
 class Detector;
 class DataTransmitter;
+class AutoLabeler;
 
 /**
  * @brief 相机类型枚举
@@ -163,6 +164,7 @@ private:
     std::unique_ptr<Detector> m_digitDetector;
     std::unique_ptr<Detector> m_beanDetector;
     std::shared_ptr<DataTransmitter> m_transmitter;
+    std::unique_ptr<AutoLabeler> m_autoLabeler;
 
     // 状态标志
     std::atomic<bool> m_digitHealthy;

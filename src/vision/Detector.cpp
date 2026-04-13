@@ -9,7 +9,8 @@ Detector::Detector(const std::string& modelPath,
     int netWidth,
     int netHeight,
     float confThreshold,
-    float nmsThreshold)
+    float nmsThreshold,
+    bool useWhiteRegionDetection)
     : m_modelPath(modelPath),
     m_classesFile(classesFile),
     m_netWidth(netWidth),
@@ -17,7 +18,8 @@ Detector::Detector(const std::string& modelPath,
     m_confThreshold(confThreshold),
     m_nmsThreshold(nmsThreshold),
     m_threshold(Config::THRESHOLD),
-    m_minArea(Config::MIN_AREA) {}
+    m_minArea(Config::MIN_AREA),
+    m_useWhiteRegionDetection(useWhiteRegionDetection) {}
 
 bool Detector::init() {
     // 加载模型
@@ -85,7 +87,7 @@ void Detector::postprocess(const cv::Mat& frame, const std::vector<cv::Mat>& out
             continue;
         }
 
-        // 2. 核心修复：转置矩阵以确保安全的行读取
+        
         if (outMat.rows < outMat.cols) {
             cv::transpose(outMat, outMat);
         }
@@ -97,10 +99,16 @@ void Detector::postprocess(const cv::Mat& frame, const std::vector<cv::Mat>& out
         if (numClasses <= 0) continue;
 
         // 3. 安全遍历所有预测框
+        // 计算从网络尺寸到实际帧尺寸的缩放比例
+        // preprocess 将帧 resize 到 m_netWidth x m_netHeight，模型输出的是网络尺寸坐标
+        // 需要将坐标从网络尺寸映射回原始帧尺寸
+        const float scaleX = static_cast<float>(frame.cols) / m_netWidth;
+        const float scaleY = static_cast<float>(frame.rows) / m_netHeight;
+
         for (int i = 0; i < numAnchors; ++i) {
             const float* data = outMat.ptr<float>(i);
 
-            // 归一化坐标
+            // 模型输出的是网络输入尺寸(640x640)的像素坐标
             const float x_center = data[0];
             const float y_center = data[1];
             const float width = data[2];
@@ -118,11 +126,11 @@ void Detector::postprocess(const cv::Mat& frame, const std::vector<cv::Mat>& out
             }
 
             if (maxConf >= m_confThreshold) {
-                // 转换回真实像素坐标
-                const int left = static_cast<int>((x_center - width / 2) * frame.cols);
-                const int top = static_cast<int>((y_center - height / 2) * frame.rows);
-                const int w = static_cast<int>(width * frame.cols);
-                const int h = static_cast<int>(height * frame.rows);
+                // 从网络坐标缩放到实际帧坐标
+                const int left = static_cast<int>((x_center - width / 2) * scaleX);
+                const int top = static_cast<int>((y_center - height / 2) * scaleY);
+                const int w = static_cast<int>(width * scaleX);
+                const int h = static_cast<int>(height * scaleY);
 
                 cv::Rect box(left, top, w, h);
                 // 确保框在图像边界内
@@ -196,6 +204,14 @@ std::vector<cv::Rect> Detector::findWhiteRegions(const cv::Mat& frame) {
 
 void Detector::detect(cv::Mat& frame, std::vector<Detection>& detections) {
     detections.clear();
+
+    if (!m_useWhiteRegionDetection) {
+        // 豆子检测：不使用白纸区域，直接对整个图像进行推理
+        detectROI(frame, cv::Rect(0, 0, frame.cols, frame.rows), detections);
+        return;
+    }
+
+    // 数字检测：使用白纸区域
     // 步骤1：查找白色纸张区域
     std::vector<cv::Rect> whiteRects = findWhiteRegions(frame);
     if (whiteRects.empty()) {

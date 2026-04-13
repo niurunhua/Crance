@@ -20,7 +20,8 @@ public:
              int netWidth,
              int netHeight,
              float confThreshold,
-             float nmsThreshold);
+             float nmsThreshold,
+             bool useWhiteRegionDetection = true);
     ~Detector() = default;
 
     /**
@@ -82,6 +83,7 @@ private:
     std::vector<std::string> m_outputNames;
     int m_threshold;      // 二值化阈值（使用Config中的静态值）
     int m_minArea;        // 最小轮廓面积（使用Config中的静态值）
+    bool m_useWhiteRegionDetection; // 是否使用白纸区域检测
 };
 
 #endif // DETECTOR_H

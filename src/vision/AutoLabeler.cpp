@@ -38,11 +38,22 @@ void AutoLabeler::ensureDirectoryExists(const std::string& path) {
 int AutoLabeler::process(const cv::Mat& frame, const std::vector<Detection>& detections) {
     // Filter detections by confidence threshold
     std::vector<Detection> highConfDetections;
+    float maxConf = 0;
     for (const auto& det : detections) {
+        if (det.confidence > maxConf) maxConf = det.confidence;
         if (det.confidence >= m_confidenceThreshold) {
             highConfDetections.push_back(det);
         }
     }
+
+    static int callCount = 0;
+    if (++callCount <= 5) {
+        std::cout << "[AutoLabeler] 检测数:" << detections.size()
+                  << " 最高置信度:" << maxConf
+                  << " 阈值:" << m_confidenceThreshold
+                  << " 达标数:" << highConfDetections.size() << std::endl;
+    }
+
     if (highConfDetections.empty()) {
         return 0;
     }
