@@ -3,6 +3,7 @@
 #include <fstream>
 #include <sstream>
 #include <iostream>
+#include <chrono>
 
 Detector::Detector(const std::string& modelPath,
     const std::string& classesFile,
@@ -22,142 +23,129 @@ Detector::Detector(const std::string& modelPath,
     m_useWhiteRegionDetection(useWhiteRegionDetection) {}
 
 bool Detector::init() {
-    // 加载模型
-    m_net = cv::dnn::readNetFromONNX(m_modelPath);
-    if (m_net.empty()) {
-        std::cerr << "Failed to load model from " << m_modelPath << std::endl;
+    try {
+        std::cout << "Loading model with OpenVINO: " << m_modelPath << std::endl;
+
+        // Load model
+        m_model = m_core.read_model(m_modelPath);
+
+        // Get input/output names
+        auto inputs = m_model->inputs();
+        auto outputs = m_model->outputs();
+
+        if (inputs.empty() || outputs.empty()) {
+            std::cerr << "Model has no inputs or outputs!" << std::endl;
+            return false;
+        }
+
+        m_input_name = inputs[0].get_any_name();
+        m_output_name = outputs[0].get_any_name();
+
+        std::cout << "Input: " << m_input_name << ", Output: " << m_output_name << std::endl;
+
+        // Set input shape (batch=1, channels=3, height, width)
+        ov::Shape input_shape = {1, 3, (size_t)m_netHeight, (size_t)m_netWidth};
+        auto input_port = inputs[0];
+        m_model->reshape({{m_input_name, input_shape}});
+
+        // Compile model for CPU (Intel CPU will use oneDNN optimization)
+        m_compiled_model = m_core.compile_model(m_model, "CPU");
+
+        // Create infer request
+        m_infer_request = m_compiled_model.create_infer_request();
+
+        std::cout << "OpenVINO model loaded successfully on CPU" << std::endl;
+
+        // Load class names
+        if (!m_classesFile.empty()) {
+            std::ifstream file(m_classesFile);
+            if (file.is_open()) {
+                std::string line;
+                while (std::getline(file, line)) {
+                    m_classNames.push_back(line);
+                }
+                file.close();
+            }
+        }
+
+        if (m_classNames.empty()) {
+            for (int i = 0; i < Config::NUM_CLASSES; ++i) {
+                m_classNames.push_back("class_" + std::to_string(i));
+            }
+        }
+
+        std::cout << "Detector initialized with " << m_classNames.size() << " classes." << std::endl;
+        return true;
+
+    } catch (const std::exception& e) {
+        std::cerr << "OpenVINO init failed: " << e.what() << std::endl;
         return false;
     }
-    // 设置优先后端（CPU）
-    m_net.setPreferableBackend(cv::dnn::DNN_BACKEND_OPENCV);
-    m_net.setPreferableTarget(cv::dnn::DNN_TARGET_CPU);
-
-    // 加载类别名称
-    if (!m_classesFile.empty()) {
-        std::ifstream file(m_classesFile);
-        if (file.is_open()) {
-            std::string line;
-            while (std::getline(file, line)) {
-                m_classNames.push_back(line);
-            }
-            file.close();
-        }
-    }
-    // 如果未加载类别名称，创建默认名称
-    if (m_classNames.empty()) {
-        for (int i = 0; i < Config::NUM_CLASSES; ++i) {
-            m_classNames.push_back("class_" + std::to_string(i));
-        }
-    }
-
-    // 获取输出层名称（YOLOv11可能只有单个输出 \"output0\"）
-    m_outputNames = m_net.getUnconnectedOutLayersNames();
-    if (m_outputNames.empty()) {
-        // 备用方案：假设输出名称为 \"output0\"
-        m_outputNames.push_back("output0");
-    }
-
-    std::cout << "Detector initialized with " << m_classNames.size() << " classes." << std::endl;
-    return true;
 }
 
-void Detector::preprocess(const cv::Mat& frame, cv::Mat& blob) {
-    // 从图像创建blob，无缩放（0-255），调整到网络尺寸，无均值减法
-    cv::dnn::blobFromImage(frame, blob, 1.0 / 255.0, cv::Size(m_netWidth, m_netHeight), cv::Scalar(), true, false);
-}
-
-void Detector::postprocess(const cv::Mat& frame, const std::vector<cv::Mat>& outputs, std::vector<Detection>& detections) {
+void Detector::postprocess(const cv::Mat& frame, ov::Tensor& output_tensor, std::vector<Detection>& detections) {
     detections.clear();
+
+    float* data = output_tensor.data<float>();
+    auto shape = output_tensor.get_shape();
+
+    int num_attributes = shape[1];  // e.g., 4 + num_classes
+    int num_anchors = shape[2];     // e.g., 8400
+
+    int num_classes = num_attributes - 4;
+
+    const float scaleX = static_cast<float>(frame.cols) / m_netWidth;
+    const float scaleY = static_cast<float>(frame.rows) / m_netHeight;
+
     std::vector<int> classIds;
     std::vector<float> confidences;
     std::vector<cv::Rect> boxes;
 
-    for (const auto& output : outputs) {
-        cv::Mat outMat;
+    for (int i = 0; i < num_anchors; ++i) {
+        float x_center = data[0 * num_anchors + i];
+        float y_center = data[1 * num_anchors + i];
+        float width = data[2 * num_anchors + i];
+        float height = data[3 * num_anchors + i];
 
-        // 1. 将3D张量缩减为2D矩阵
-        if (output.dims == 3) {
-            outMat = cv::Mat(output.size[1], output.size[2], CV_32F, output.data);
-        }
-        else if (output.dims == 2) {
-            outMat = output;
-        }
-        else {
-            std::cerr << "Unexpected output dimension: " << output.dims << std::endl;
-            continue;
-        }
-
-        
-        if (outMat.rows < outMat.cols) {
-            cv::transpose(outMat, outMat);
-        }
-
-        const int numAnchors = outMat.rows;     // 例如：8400
-        const int numAttributes = outMat.cols;  // 例如：9（4个坐标 + 5个类别）
-        const int numClasses = numAttributes - 4;
-
-        if (numClasses <= 0) continue;
-
-        // 3. 安全遍历所有预测框
-        // 计算从网络尺寸到实际帧尺寸的缩放比例
-        // preprocess 将帧 resize 到 m_netWidth x m_netHeight，模型输出的是网络尺寸坐标
-        // 需要将坐标从网络尺寸映射回原始帧尺寸
-        const float scaleX = static_cast<float>(frame.cols) / m_netWidth;
-        const float scaleY = static_cast<float>(frame.rows) / m_netHeight;
-
-        for (int i = 0; i < numAnchors; ++i) {
-            const float* data = outMat.ptr<float>(i);
-
-            // 模型输出的是网络输入尺寸(640x640)的像素坐标
-            const float x_center = data[0];
-            const float y_center = data[1];
-            const float width = data[2];
-            const float height = data[3];
-
-            // 找到最大置信度的类别
-            int classId = -1;
-            float maxConf = 0.0f;
-            for (int c = 0; c < numClasses; ++c) {
-                float conf = data[4 + c];
-                if (conf > maxConf) {
-                    maxConf = conf;
-                    classId = c;
-                }
+        // Find max class confidence
+        int classId = -1;
+        float maxConf = 0.0f;
+        for (int c = 0; c < num_classes; ++c) {
+            float conf = data[(4 + c) * num_anchors + i];
+            if (conf > maxConf) {
+                maxConf = conf;
+                classId = c;
             }
+        }
 
-            if (maxConf >= m_confThreshold) {
-                // 从网络坐标缩放到实际帧坐标
-                const int left = static_cast<int>((x_center - width / 2) * scaleX);
-                const int top = static_cast<int>((y_center - height / 2) * scaleY);
-                const int w = static_cast<int>(width * scaleX);
-                const int h = static_cast<int>(height * scaleY);
+        if (maxConf >= m_confThreshold) {
+            int left = static_cast<int>((x_center - width / 2) * scaleX);
+            int top = static_cast<int>((y_center - height / 2) * scaleY);
+            int w = static_cast<int>(width * scaleX);
+            int h = static_cast<int>(height * scaleY);
 
-                cv::Rect box(left, top, w, h);
-                // 确保框在图像边界内
-                box = box & cv::Rect(0, 0, frame.cols, frame.rows);
+            cv::Rect box(left, top, w, h);
+            box = box & cv::Rect(0, 0, frame.cols, frame.rows);
 
-                // 仅保留有效框
-                if (box.width > 2 && box.height > 2) {
-                    classIds.push_back(classId);
-                    confidences.push_back(maxConf);
-                    boxes.push_back(box);
-                }
+            if (box.width > 2 && box.height > 2) {
+                classIds.push_back(classId);
+                confidences.push_back(maxConf);
+                boxes.push_back(box);
             }
         }
     }
 
-    // 应用非极大值抑制
+    // NMS
     std::vector<int> indices;
     cv::dnn::NMSBoxes(boxes, confidences, m_confThreshold, m_nmsThreshold, indices);
 
-    // 创建检测对象
     for (int idx : indices) {
         Detection det;
         det.classId = classIds[idx];
         det.confidence = confidences[idx];
         det.box = boxes[idx];
         det.center = cv::Point2f(boxes[idx].x + boxes[idx].width / 2.0f,
-            boxes[idx].y + boxes[idx].height / 2.0f);
+                                  boxes[idx].y + boxes[idx].height / 2.0f);
         detections.push_back(det);
     }
 }
@@ -166,28 +154,23 @@ std::vector<cv::Rect> Detector::findWhiteRegions(const cv::Mat& frame) {
     std::vector<cv::Rect> whiteRects;
     if (frame.empty()) return whiteRects;
 
-    // 1. 转换为灰度图
     cv::Mat gray;
     cv::cvtColor(frame, gray, cv::COLOR_BGR2GRAY);
 
-    // 2. 阈值提取亮白纸张
     cv::Mat binary;
     cv::threshold(gray, binary, m_threshold, 255, cv::THRESH_BINARY);
 
-    // 3. 查找轮廓
     std::vector<std::vector<cv::Point>> contours;
     cv::findContours(binary, contours, cv::RETR_EXTERNAL, cv::CHAIN_APPROX_SIMPLE);
 
-    // 4. 过滤轮廓
     for (const auto& contour : contours) {
         double area = cv::contourArea(contour);
-        if (area < m_minArea) continue; // 噪声
+        if (area < m_minArea) continue;
 
         cv::Rect rect = cv::boundingRect(contour);
         float aspectRatio = static_cast<float>(rect.width) / rect.height;
-        if (aspectRatio < 0.7f || aspectRatio > 1.3f) continue; // 非正方形
+        if (aspectRatio < 0.7f || aspectRatio > 1.3f) continue;
 
-        // 添加边距（每边15像素）
         int margin = 15;
         cv::Rect expanded(
             rect.x - margin,
@@ -195,7 +178,6 @@ std::vector<cv::Rect> Detector::findWhiteRegions(const cv::Mat& frame) {
             rect.width + 2 * margin,
             rect.height + 2 * margin
         );
-        // 确保在图像边界内
         expanded = expanded & cv::Rect(0, 0, frame.cols, frame.rows);
         whiteRects.push_back(expanded);
     }
@@ -206,36 +188,22 @@ void Detector::detect(cv::Mat& frame, std::vector<Detection>& detections) {
     detections.clear();
 
     if (!m_useWhiteRegionDetection) {
-        // 豆子检测：不使用白纸区域，直接对整个图像进行推理
         detectROI(frame, cv::Rect(0, 0, frame.cols, frame.rows), detections);
         return;
     }
 
-    // 数字检测：使用白纸区域
-    // 步骤1：查找白色纸张区域
     std::vector<cv::Rect> whiteRects = findWhiteRegions(frame);
     if (whiteRects.empty()) {
-        // 未找到白色纸张，跳过YOLO推理
         return;
     }
 
-    // 步骤2：对每个白色区域，裁剪ROI并运行YOLO
     for (const cv::Rect& roiRect : whiteRects) {
-        // 确保ROI有效
         if (roiRect.width <= 0 || roiRect.height <= 0) continue;
 
         cv::Mat roiImg = frame(roiRect);
-        cv::Mat blob;
-        preprocess(roiImg, blob);
-        m_net.setInput(blob);
-        std::vector<cv::Mat> outputs;
-        m_net.forward(outputs, m_outputNames);
-
-        // 相对于ROI的临时检测结果
         std::vector<Detection> roiDetections;
-        postprocess(roiImg, outputs, roiDetections);
+        detectROI(roiImg, cv::Rect(0, 0, roiImg.cols, roiImg.rows), roiDetections);
 
-        // 将坐标映射回原图
         for (auto& det : roiDetections) {
             det.box.x += roiRect.x;
             det.box.y += roiRect.y;
@@ -244,57 +212,71 @@ void Detector::detect(cv::Mat& frame, std::vector<Detection>& detections) {
             detections.push_back(det);
         }
     }
-
-    // 是否对不同ROI的检测结果应用非极大值抑制？
-    // 由于每个ROI代表独立的纸张，跨ROI的NMS可能不需要。
-    // 但如果多个ROI重叠，可以应用NMS。
-    // 为简单起见，我们保留所有检测结果。
 }
 
 void Detector::detectROI(const cv::Mat& frame, const cv::Rect& roi, std::vector<Detection>& detections) {
     detections.clear();
 
-    // 检查ROI有效性
     if (roi.width <= 0 || roi.height <= 0 || roi.x < 0 || roi.y < 0 ||
         roi.x + roi.width > frame.cols || roi.y + roi.height > frame.rows) {
-        std::cerr << "警告：无效的ROI区域，跳过检测" << std::endl;
         return;
     }
 
-    // 裁剪ROI区域
     cv::Mat roiImg = frame(roi);
-    cv::Mat blob;
-    preprocess(roiImg, blob);
 
-    // 网络推理
-    m_net.setInput(blob);
-    std::vector<cv::Mat> outputs;
-    m_net.forward(outputs, m_outputNames);
+    try {
+        // Preprocess: resize and convert to blob
+        cv::Mat blob;
+        cv::resize(roiImg, blob, cv::Size(m_netWidth, m_netHeight));
+        blob.convertTo(blob, CV_32F, 1.0 / 255.0);
 
-    // 后处理（ROI坐标系）
-    std::vector<Detection> roiDetections;
-    postprocess(roiImg, outputs, roiDetections);
+        // Get input tensor
+        auto input_tensor = m_infer_request.get_input_tensor();
 
-    // 将坐标映射回原图
-    for (auto& det : roiDetections) {
-        det.box.x += roi.x;
-        det.box.y += roi.y;
-        det.center.x += roi.x;
-        det.center.y += roi.y;
-        detections.push_back(det);
+        // Copy data to input tensor (NCHW format)
+        float* input_data = input_tensor.data<float>();
+        std::vector<cv::Mat> channels(3);
+        cv::split(blob, channels);
+
+        int channel_size = m_netWidth * m_netHeight;
+        for (int c = 0; c < 3; ++c) {
+            memcpy(input_data + c * channel_size, channels[c].data, channel_size * sizeof(float));
+        }
+
+        // Inference
+        auto start = std::chrono::high_resolution_clock::now();
+        m_infer_request.infer();
+        auto end = std::chrono::high_resolution_clock::now();
+        m_lastInferenceTime = std::chrono::duration<double, std::milli>(end - start).count();
+
+        // Get output
+        auto output_tensor = m_infer_request.get_output_tensor();
+
+        // Postprocess
+        postprocess(roiImg, output_tensor, detections);
+
+        // Map coordinates back to original frame
+        for (auto& det : detections) {
+            det.box.x += roi.x;
+            det.box.y += roi.y;
+            det.center.x += roi.x;
+            det.center.y += roi.y;
+        }
+
+        // Inference time logging (disabled)
+        // if (m_lastInferenceTime > 30) {
+        //     std::cout << "[OpenVINO Inference: " << m_lastInferenceTime << "ms]" << std::endl;
+        // }
+
+    } catch (const std::exception& e) {
+        std::cerr << "Inference error: " << e.what() << std::endl;
     }
-
-    // 可选：对检测结果进行NMS
-    // 注意：由于只有一个ROI，可能不需要NMS
 }
 
 void Detector::drawDetections(cv::Mat& frame, const std::vector<Detection>& detections) {
     for (const auto& det : detections) {
-        // 绘制矩形框
         cv::rectangle(frame, det.box, cv::Scalar(0, 255, 0), 2);
 
-        // 标注类别名称和置信度
-        // 确保类别ID在有效范围内
         std::string className = "Unknown";
         if (det.classId >= 0 && det.classId < static_cast<int>(m_classNames.size())) {
             className = m_classNames[det.classId];
@@ -309,7 +291,6 @@ void Detector::drawDetections(cv::Mat& frame, const std::vector<Detection>& dete
         cv::putText(frame, label, cv::Point(det.box.x, top),
             cv::FONT_HERSHEY_SIMPLEX, 0.5, cv::Scalar(0, 0, 0), 1);
 
-        // 绘制中心点
         cv::circle(frame, det.center, 3, cv::Scalar(0, 0, 255), -1);
     }
 }

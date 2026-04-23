@@ -39,7 +39,7 @@ namespace Config {
 
 
     //  YOLO模型路径
-    inline const std::string MODEL_PATH = "C:/Users/Administrator/runs/detect/train13/weights/best.onnx";
+    inline const std::string MODEL_PATH = "E:/qzj2/weights/best.onnx";
 
     //  类别标签文件路径
     inline const std::string CLASSES_FILE = "E:/yolov11/datasets/labels/train/classes.txt";
@@ -51,7 +51,7 @@ namespace Config {
     inline constexpr int NETWORK_HEIGHT = 640;
 
     //  目标检测置信度阈值（0.0~1.0，值越高漏检越多但误检越少）
-    inline constexpr float CONFIDENCE_THRESHOLD = 0.7f;
+    inline constexpr float CONFIDENCE_THRESHOLD = 0.9f;
 
     //  非极大值抑制阈值（0.0~1.0，值越高保留的重复框越多）
     //通常设0.4~0.5，目标密集场景可降至0.3，稀疏场景可增至0.6
@@ -59,7 +59,7 @@ namespace Config {
 
     //  模型类别总数
     //数字1-5 + 豆子类型，共5类
-    inline constexpr int NUM_CLASSES = 3;
+    inline constexpr int NUM_CLASSES = 8;
 
     //  自动标注置信度阈值
     //高于此阈值的检测结果才会保存为标注数据，建议0.85以上保证质量
@@ -75,7 +75,11 @@ namespace Config {
 
     //  目标丢失缓冲帧数
     //值越大输出越稳定但响应延迟越大，典型5~10帧
-    inline constexpr int LOST_BUFFER_FRAMES = 0;
+    inline constexpr int LOST_BUFFER_FRAMES = 10;
+
+    //  推理间隔帧数（每N帧推理1次）
+    //值越小检测越实时但CPU负载越高，1表示每帧都推理，6表示每6帧推理1次
+    inline constexpr int INFERENCE_INTERVAL = 20;
 
     //  低通滤波器系数（0.0~1.0，用于坐标平滑）
     //越小越平滑但延迟越大，0.3适合中等速度目标，快速目标可提至0.5
@@ -102,13 +106,13 @@ namespace Config {
     inline constexpr int SERIAL_BAUD = 115200;
 
     //  自动标注开关
-    inline constexpr bool AUTO_LABEL_ENABLED = true;
+    inline constexpr bool AUTO_LABEL_ENABLED = false;
 
     //  自动标注输出目录
     inline const std::string AUTO_LABEL_OUTPUT_DIR = "E:/yolov11/auto_labels";
 
     //  自动标注置信度阈值
-    inline constexpr float AUTO_LABEL_CONFIDENCE = 0.50f;
+    inline constexpr float AUTO_LABEL_CONFIDENCE = 0.80f;
 }
 
 #endif // CONFIG_H

@@ -5,10 +5,18 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 add_compile_options(/utf-8)
 
+# vcpkg paths
+set(CMAKE_TOOLCHAIN_FILE "C:/Users/Administrator/source/repos/AR/vcpkg/scripts/buildsystems/vcpkg.cmake" CACHE STRING "Vcpkg toolchain file")
+set(CMAKE_PREFIX_PATH "C:/Users/Administrator/source/repos/AR/vcpkg/installed/x64-windows")
+
+# OpenVINO path
+set(OpenVINO_DIR "C:/Users/Administrator/openvino_toolkit_windows_2026.1.0.21367.63e31528c62_x86_64/runtime/cmake")
+
 # Find OpenCV
-# 使用vcpkg安装的OpenCV
-set(OpenCV_DIR "C:/Users/Administrator/source/repos/AR/vcpkg/installed/x64-windows/share/opencv4")
 find_package(OpenCV REQUIRED)
+
+# Find OpenVINO
+find_package(OpenVINO REQUIRED)
 
 # Include directories
 include_directories(${OpenCV_INCLUDE_DIRS})
@@ -30,8 +38,8 @@ set(SOURCES
 # Add executable
 add_executable(yolov11_async ${SOURCES})
 
-# Link OpenCV
-target_link_libraries(yolov11_async ${OpenCV_LIBS})
+# Link OpenCV and OpenVINO
+target_link_libraries(yolov11_async ${OpenCV_LIBS} openvino::runtime)
 
 # On Windows, link serial port library
 if(WIN32)
@@ -42,17 +50,9 @@ endif()
 set(EXECUTABLE_OUTPUT_PATH ${CMAKE_BINARY_DIR}/bin)
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
 
-# Test program
-add_executable(test_model test_model.cpp)
-target_link_libraries(test_model ${OpenCV_LIBS})
-
-# Speed test program
-add_executable(test_speed test_speed.cpp)
-target_link_libraries(test_speed ${OpenCV_LIBS})
-
-# Detection test
-add_executable(test_det test_speed.cpp)
-target_link_libraries(test_det ${OpenCV_LIBS})
-
-# Config test
-add_executable(test_config test_config.cpp)
+# Inference test program
+add_executable(test_inference test_inference.cpp
+    src/vision/Detector.cpp
+    src/vision/AutoLabeler.cpp
+)
+target_link_libraries(test_inference ${OpenCV_LIBS} openvino::runtime)

@@ -208,13 +208,13 @@ void CameraManager::cameraThreadFunc(CameraConfig config) {
 
         std::cout << "  相机已打开，进行暖机初始化..." << std::endl;
 
-        // 不强制设置分辨率，使用相机原生分辨率
-        // cap.set(cv::CAP_PROP_FRAME_WIDTH, Config::INPUT_WIDTH);
-        // cap.set(cv::CAP_PROP_FRAME_HEIGHT, Config::INPUT_HEIGHT);
+        // 设置分辨率（降低分辨率可提升帧率）
+        cap.set(cv::CAP_PROP_FRAME_WIDTH, Config::INPUT_WIDTH);
+        cap.set(cv::CAP_PROP_FRAME_HEIGHT, Config::INPUT_HEIGHT);
 
-        // 关闭自动曝光，设置短曝光时间（根除运动模糊）
-        cap.set(cv::CAP_PROP_AUTO_EXPOSURE, 0.25); // 手动曝光模式
-        cap.set(cv::CAP_PROP_EXPOSURE, config.exposure); // 使用配置的曝光值
+        // 使用相机默认曝光（不强制设置）
+        // cap.set(cv::CAP_PROP_AUTO_EXPOSURE, 0.25);
+        // cap.set(cv::CAP_PROP_EXPOSURE, config.exposure);
 
         // 限制底层缓冲区大小（减少延迟）
         cap.set(cv::CAP_PROP_BUFFERSIZE, 1);
@@ -321,8 +321,8 @@ void CameraManager::cameraThreadFunc(CameraConfig config) {
             lastFpsTime = currentTime;
         }
 
-        // 每6帧推理1次（两个相机推理不同任务，无需互斥锁）
-        if (frameCounter % 6 == 0 && detector) {
+        // 推理间隔（由Config配置）
+        if (frameCounter % Config::INFERENCE_INTERVAL == 0 && detector) {
             std::vector<Detection> detections;
             detector->detect(displayFrame, detections);
             if (!detections.empty()) {
