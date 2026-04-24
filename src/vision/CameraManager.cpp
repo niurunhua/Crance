@@ -23,6 +23,7 @@ bool CameraManager::init(const CameraConfig& digitConfig, const CameraConfig& be
 
     std::cout << "初始化相机管理器..." << std::endl;
 
+    // 初始化数字相机
     if (initCamera(m_digitConfig)) {
         std::cout << "数字相机初始化成功" << std::endl;
         m_digitStatus = "检测器就绪";
@@ -33,6 +34,7 @@ bool CameraManager::init(const CameraConfig& digitConfig, const CameraConfig& be
         m_digitConfig.enabled = false;
     }
 
+    // 初始化豆子相机
     if (initCamera(m_beanConfig)) {
         std::cout << "豆子相机初始化成功" << std::endl;
         m_beanStatus = "检测器就绪";
@@ -43,11 +45,13 @@ bool CameraManager::init(const CameraConfig& digitConfig, const CameraConfig& be
         m_beanConfig.enabled = false;
     }
 
+    // 初始化串口
     m_transmitter = std::make_shared<DataTransmitter>();
     if (!m_transmitter->initSerial(Config::SERIAL_PORT, Config::SERIAL_BAUD)) {
         std::cout << "串口初始化失败，将使用终端输出" << std::endl;
     }
 
+    // 初始化自动标注
     if (Config::AUTO_LABEL_ENABLED) {
         m_autoLabeler = std::make_unique<AutoLabeler>(
             Config::AUTO_LABEL_OUTPUT_DIR, Config::AUTO_LABEL_CONFIDENCE);
@@ -66,6 +70,7 @@ bool CameraManager::init(const CameraConfig& digitConfig, const CameraConfig& be
 bool CameraManager::initCamera(CameraConfig& config) {
     std::cout << "初始化相机: " << (config.type == CAMERA_DIGIT ? "数字" : "豆子") << std::endl;
 
+    // 创建检测器
     std::unique_ptr<Detector> detector;
     if (!config.modelPath.empty()) {
         detector = std::make_unique<Detector>(
@@ -80,6 +85,7 @@ bool CameraManager::initCamera(CameraConfig& config) {
         std::cout << "检测器初始化成功" << std::endl;
     }
 
+    // 存储检测器
     if (config.type == CAMERA_DIGIT) {
         m_digitDetector = std::move(detector);
     } else {
@@ -97,6 +103,7 @@ void CameraManager::start() {
 
     m_running = true;
 
+    // 启动相机线程
     if (m_digitConfig.enabled) {
         m_digitThread = std::thread(&CameraManager::cameraThreadFunc, this, m_digitConfig);
         std::cout << "数字相机线程已启动" << std::endl;
@@ -116,6 +123,7 @@ void CameraManager::stop() {
     std::cout << "正在停止相机管理器..." << std::endl;
     m_running = false;
 
+    // 等待线程结束
     if (m_digitThread.joinable()) {
         m_digitThread.join();
         std::cout << "数字相机线程已停止" << std::endl;
@@ -140,7 +148,6 @@ void CameraManager::cameraThreadFunc(CameraConfig config) {
     }
 
     cv::VideoCapture cap;
-
     std::cout << "打开相机: " << config.cameraIndex << std::endl;
 
     try {
@@ -152,11 +159,12 @@ void CameraManager::cameraThreadFunc(CameraConfig config) {
             return;
         }
 
+        // 设置相机参数
         cap.set(cv::CAP_PROP_FRAME_WIDTH, Config::INPUT_WIDTH);
         cap.set(cv::CAP_PROP_FRAME_HEIGHT, Config::INPUT_HEIGHT);
         cap.set(cv::CAP_PROP_BUFFERSIZE, 1);
 
-        // 暖机
+        // 暖机：等待画面稳定
         cv::Mat testFrame;
         bool foundValidFrame = false;
         for (int attempt = 0; attempt < 30; ++attempt) {
@@ -177,6 +185,7 @@ void CameraManager::cameraThreadFunc(CameraConfig config) {
             return;
         }
 
+        // 标记相机健康
         if (config.type == CAMERA_DIGIT) m_digitHealthy.store(true);
         if (config.type == CAMERA_BEAN) m_beanHealthy.store(true);
 
@@ -188,8 +197,10 @@ void CameraManager::cameraThreadFunc(CameraConfig config) {
         return;
     }
 
+    // 获取检测器
     Detector* detector = (config.type == CAMERA_DIGIT) ? m_digitDetector.get() : m_beanDetector.get();
 
+    // 初始化轮廓处理器 (仅数字相机)
     std::unique_ptr<ContourProcessor> contourProcessor;
     std::unique_ptr<CoordinateCalculator> coordCalculator;
     if (config.type == CAMERA_DIGIT) {
@@ -198,18 +209,21 @@ void CameraManager::cameraThreadFunc(CameraConfig config) {
         coordCalculator->setImageSize(Config::INPUT_WIDTH, Config::INPUT_HEIGHT);
     }
 
+    // 帧处理变量
     int frameCounter = 0;
     cv::Mat frame, displayFrame;
     std::vector<Detection> lastDetections;
     int noDetectionFrames = 0;
     const int maxNoDetectionFrames = 5;
 
+    // FPS计算
     auto lastFpsTime = std::chrono::steady_clock::now();
     int fpsFrameCount = 0;
     double currentFps = 0.0;
 
     std::cout << "相机线程 " << (config.type == CAMERA_DIGIT ? "数字" : "豆子") << " 开始运行" << std::endl;
 
+    // 主循环
     while (m_running) {
         cap >> frame;
         if (frame.empty()) {
@@ -219,7 +233,7 @@ void CameraManager::cameraThreadFunc(CameraConfig config) {
 
         displayFrame = frame;
 
-        // FPS计算
+        // 计算FPS
         fpsFrameCount++;
         auto currentTime = std::chrono::steady_clock::now();
         auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(currentTime - lastFpsTime);
@@ -229,7 +243,7 @@ void CameraManager::cameraThreadFunc(CameraConfig config) {
             lastFpsTime = currentTime;
         }
 
-        // 推理
+        // 目标检测 (按间隔帧数)
         if (frameCounter % Config::INFERENCE_INTERVAL == 0 && detector) {
             std::vector<Detection> detections;
             detector->detect(displayFrame, detections);
@@ -237,6 +251,7 @@ void CameraManager::cameraThreadFunc(CameraConfig config) {
                 lastDetections = detections;
                 noDetectionFrames = 0;
 
+                // 自动标注 (仅豆子相机)
                 if (config.type == CAMERA_BEAN && m_autoLabeler) {
                     int saved = m_autoLabeler->process(displayFrame, detections);
                     if (saved > 0) {
@@ -251,7 +266,7 @@ void CameraManager::cameraThreadFunc(CameraConfig config) {
             }
         }
 
-        // 绘制检测结果
+        // 绘制检测结果并发送数据
         if (!lastDetections.empty()) {
             detector->drawDetections(displayFrame, lastDetections);
             const auto& det = lastDetections[0];
@@ -265,7 +280,7 @@ void CameraManager::cameraThreadFunc(CameraConfig config) {
             }
         }
 
-        // 更新显示
+        // 更新显示结果
         if (config.type == CAMERA_DIGIT) {
             std::lock_guard<std::mutex> lock(m_digitMutex);
             m_digitResult.frame = displayFrame;
