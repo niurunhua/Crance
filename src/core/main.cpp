@@ -52,6 +52,9 @@ int main(int argc, char** argv) {
     beanConfig.sourceId = Config::BEAN_SOURCE_ID;
     beanConfig.exposure = Config::BEAN_EXPOSURE;
 
+    std::cout << "数字相机配置 - 索引: " << digitConfig.cameraIndex << std::endl;
+    std::cout << "豆子相机配置 - 索引: " << beanConfig.cameraIndex << std::endl;
+
     CameraManager cameraManager;
 
     // 初始化相机

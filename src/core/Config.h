@@ -5,7 +5,7 @@
 
 namespace Config {
     // 相机配置
-    inline constexpr int DIGIT_CAMERA_ID = 1;      // 数字相机索引
+    inline constexpr int DIGIT_CAMERA_ID = 2;      // 数字相机索引
     inline constexpr int BEAN_CAMERA_ID = 0;       // 豆子相机索引
     inline constexpr double DIGIT_EXPOSURE = 1.0;  // 数字相机曝光
     inline constexpr double BEAN_EXPOSURE = -4.0;  // 豆子相机曝光
@@ -19,7 +19,7 @@ namespace Config {
     inline const std::string CLASSES_FILE = "E:/yolov11/datasets/labels/train/classes.txt";
     inline constexpr int NETWORK_WIDTH = 640;      // 网络输入宽度
     inline constexpr int NETWORK_HEIGHT = 640;     // 网络输入高度
-    inline constexpr float CONFIDENCE_THRESHOLD = 0.9f;  // 置信度阈值
+    inline constexpr float CONFIDENCE_THRESHOLD = 0.3f;  // 置信度阈值
     inline constexpr float NMS_THRESHOLD = 0.4f;         // NMS阈值
     inline constexpr int NUM_CLASSES = 8;          // 类别数量
 
@@ -32,7 +32,7 @@ namespace Config {
     inline constexpr int THRESHOLD = 200;           // 二值化阈值
     inline constexpr int MIN_AREA = 200;            // 最小轮廓面积
     inline constexpr int LOST_BUFFER_FRAMES = 10;   // 目标丢失缓冲帧数
-    inline constexpr int INFERENCE_INTERVAL = 20;   // 推理间隔帧数
+    inline constexpr int INFERENCE_INTERVAL = 5;    // 推理间隔帧数
     inline constexpr float FILTER_ALPHA = 0.5f;     // 低通滤波系数
 
     // 输入输出
@@ -43,6 +43,7 @@ namespace Config {
     inline const std::string SERIAL_PORT = "COM3";  // 串口号
     inline constexpr int SERIAL_BAUD = 115200;      // 波特率
     inline constexpr bool SERIAL_DEBUG_OUTPUT = true;  // 串口调试输出开关
+    inline constexpr bool DETECTOR_DEBUG = true;       // 检测器调试输出开关
 }
 
 #endif

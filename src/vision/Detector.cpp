@@ -17,6 +17,14 @@ Detector::Detector(const std::string& modelPath,
 
 bool Detector::init() {
     try {
+        // 显示可用设备
+        std::cout << "OpenVINO可用设备: ";
+        auto devices = m_core.get_available_devices();
+        for (const auto& device : devices) {
+            std::cout << device << " ";
+        }
+        std::cout << std::endl;
+
         std::cout << "加载模型: " << m_modelPath << std::endl;
 
         // 加载ONNX模型
@@ -89,6 +97,14 @@ void Detector::startAsync(const cv::Mat& frame) {
         cv::resize(frame, blob, cv::Size(m_netWidth, m_netHeight));
         blob.convertTo(blob, CV_32F, 1.0 / 255.0);
 
+        // 调试：检查输入图像
+        if (Config::DETECTOR_DEBUG) {
+            double minVal, maxVal;
+            cv::minMaxLoc(blob, &minVal, &maxVal);
+            std::cout << "[预处理] 输入图像范围: " << minVal << " ~ " << maxVal
+                      << ", 尺寸: " << blob.cols << "x" << blob.rows << std::endl;
+        }
+
         // 填充输入张量 (NCHW格式)
         auto input_tensor = m_async_infer_request.get_input_tensor();
         float* input_data = input_tensor.data<float>();
@@ -98,6 +114,20 @@ void Detector::startAsync(const cv::Mat& frame) {
         int channel_size = m_netWidth * m_netHeight;
         for (int c = 0; c < 3; ++c) {
             memcpy(input_data + c * channel_size, channels[c].data, channel_size * sizeof(float));
+        }
+
+        // 调试：检查输入张量数据
+        if (Config::DETECTOR_DEBUG) {
+            float minVal = input_data[0], maxVal = input_data[0];
+            float sum = 0.0f;
+            int total_elements = 3 * channel_size;
+            for (int i = 0; i < total_elements; ++i) {
+                if (input_data[i] < minVal) minVal = input_data[i];
+                if (input_data[i] > maxVal) maxVal = input_data[i];
+                sum += input_data[i];
+            }
+            std::cout << "[预处理] 输入张量范围: " << minVal << " ~ " << maxVal
+                      << ", 平均值: " << sum / total_elements << std::endl;
         }
 
         // 启动异步推理
@@ -131,6 +161,11 @@ bool Detector::getAsyncResults(std::vector<Detection>& detections) {
         // 后处理
         postprocess(temp_frame, output_tensor, detections);
 
+        // 调试输出
+        if (!detections.empty()) {
+            std::cout << "[检测] 找到 " << detections.size() << " 个目标" << std::endl;
+        }
+
         m_async_running = false;
         return true;
 
@@ -144,9 +179,32 @@ bool Detector::getAsyncResults(std::vector<Detection>& detections) {
 // 后处理：解析模型输出
 void Detector::postprocess(const cv::Mat& frame, ov::Tensor& output_tensor, std::vector<Detection>& detections) {
     detections.clear();
+    auto shape = output_tensor.get_shape();
+    if (Config::DETECTOR_DEBUG) {
+        std::cout << "[后处理] 张量形状: [";
+        for (size_t i = 0; i < shape.size(); ++i) {
+            std::cout << shape[i];
+            if (i < shape.size() - 1) std::cout << ", ";
+        }
+        std::cout << "]" << std::endl;
+    }
 
     float* data = output_tensor.data<float>();
-    auto shape = output_tensor.get_shape();
+
+    // 调试：检查输出张量数据
+    if (Config::DETECTOR_DEBUG) {
+        int total_elements = shape[0] * shape[1] * shape[2];
+        float minVal = data[0], maxVal = data[0];
+        float sum = 0.0f;
+        for (int i = 0; i < total_elements; ++i) {
+            if (data[i] < minVal) minVal = data[i];
+            if (data[i] > maxVal) maxVal = data[i];
+            sum += data[i];
+        }
+        std::cout << "[后处理] 输出张量范围: " << minVal << " ~ " << maxVal
+                  << ", 平均值: " << sum / total_elements << std::endl;
+    }
+
     int num_attributes = shape[1];  // 4 + 类别数
     int num_anchors = shape[2];     // 锚点数 (如8400)
     int num_classes = num_attributes - 4;
@@ -154,6 +212,10 @@ void Detector::postprocess(const cv::Mat& frame, ov::Tensor& output_tensor, std:
     // 坐标缩放比例
     float scaleX = (float)frame.cols / m_netWidth;
     float scaleY = (float)frame.rows / m_netHeight;
+
+    // 调试统计
+    int candidates = 0;
+    float maxConfFound = 0.0f;
 
     std::vector<int> classIds;
     std::vector<float> confidences;
@@ -178,6 +240,8 @@ void Detector::postprocess(const cv::Mat& frame, ov::Tensor& output_tensor, std:
         }
 
         if (maxConf >= m_confThreshold) {
+            candidates++;
+            if (maxConf > maxConfFound) maxConfFound = maxConf;
             int left = (int)((x - w / 2) * scaleX);
             int top = (int)((y - h / 2) * scaleY);
             int width = (int)(w * scaleX);
@@ -206,6 +270,13 @@ void Detector::postprocess(const cv::Mat& frame, ov::Tensor& output_tensor, std:
         det.center = cv::Point2f(boxes[idx].x + boxes[idx].width / 2.0f,
                                   boxes[idx].y + boxes[idx].height / 2.0f);
         detections.push_back(det);
+    }
+
+    // 调试输出
+    if (Config::DETECTOR_DEBUG) {
+        std::cout << "[后处理] 候选框: " << candidates
+                  << ", 最大置信度: " << maxConfFound
+                  << ", 最终检测: " << detections.size() << " 个目标" << std::endl;
     }
 }
 

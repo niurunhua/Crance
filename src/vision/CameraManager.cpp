@@ -148,12 +148,15 @@ void CameraManager::cameraThreadFunc(CameraConfig config) {
     }
 
     cv::VideoCapture cap;
-    std::cout << "打开相机: " << config.cameraIndex << std::endl;
+    std::cout << "[" << (config.type == CAMERA_DIGIT ? "数字" : "豆子")
+              << "相机] 尝试打开索引: " << config.cameraIndex << std::endl;
 
     try {
-        cap.open(config.cameraIndex);
+        // 使用DirectShow后端 (CAP_DSHOW = 700)，避免MSMF GPU加速
+        cap.open(config.cameraIndex, cv::CAP_DSHOW);
         if (!cap.isOpened()) {
-            std::cout << "相机打开失败: " << config.cameraIndex << std::endl;
+            std::cout << "[" << (config.type == CAMERA_DIGIT ? "数字" : "豆子")
+                      << "相机] 打开失败，索引: " << config.cameraIndex << std::endl;
             if (config.type == CAMERA_DIGIT) m_digitHealthy.store(false);
             if (config.type == CAMERA_BEAN) m_beanHealthy.store(false);
             return;
@@ -169,8 +172,9 @@ void CameraManager::cameraThreadFunc(CameraConfig config) {
         bool foundValidFrame = false;
         for (int attempt = 0; attempt < 10; ++attempt) {
             if (cap.read(testFrame) && !testFrame.empty()) {
-                std::cout << "相机 " << config.cameraIndex << " 就绪: "
-                          << testFrame.cols << "x" << testFrame.rows << std::endl;
+                std::cout << "[" << (config.type == CAMERA_DIGIT ? "数字" : "豆子")
+                          << "相机] 就绪，索引: " << config.cameraIndex
+                          << "，分辨率: " << testFrame.cols << "x" << testFrame.rows << std::endl;
                 foundValidFrame = true;
                 break;
             }
@@ -248,15 +252,19 @@ void CameraManager::cameraThreadFunc(CameraConfig config) {
             if (inferenceInProgress) {
                 std::vector<Detection> detections;
                 if (detector->getAsyncResults(detections)) {
-                    if (!detections.empty()) {
-                        lastDetections = detections;
+                    lastDetections = detections;  // 更新检测结果（可能为空）
 
-                        // 自动标注
-                        if (m_autoLabeler) {
-                            int saved = m_autoLabeler->process(displayFrame, detections);
-                            if (saved > 0) {
-                                std::cout << "[自动标注] 保存 " << saved << " 个检测" << std::endl;
-                            }
+                    // 调试输出
+                    if (Config::DETECTOR_DEBUG) {
+                        std::cout << "[" << (config.type == CAMERA_DIGIT ? "数字" : "豆子")
+                                  << "相机] 检测结果: " << detections.size() << " 个目标" << std::endl;
+                    }
+
+                    // 自动标注
+                    if (!detections.empty() && m_autoLabeler) {
+                        int saved = m_autoLabeler->process(displayFrame, detections);
+                        if (saved > 0) {
+                            std::cout << "[自动标注] 保存 " << saved << " 个检测" << std::endl;
                         }
                     }
                     inferenceInProgress = false;
@@ -265,8 +273,17 @@ void CameraManager::cameraThreadFunc(CameraConfig config) {
 
             // 按间隔帧数启动新的异步推理
             if (frameCounter % Config::INFERENCE_INTERVAL == 0 && !inferenceInProgress) {
+                if (Config::DETECTOR_DEBUG) {
+                    std::cout << "[" << (config.type == CAMERA_DIGIT ? "数字" : "豆子")
+                              << "相机] 启动推理, 帧: " << frameCounter << std::endl;
+                }
                 detector->startAsync(displayFrame);
                 inferenceInProgress = true;
+            }
+        } else {
+            if (Config::DETECTOR_DEBUG && frameCounter == 0) {
+                std::cout << "[" << (config.type == CAMERA_DIGIT ? "数字" : "豆子")
+                          << "相机] 检测器为空!" << std::endl;
             }
         }
 
@@ -289,10 +306,12 @@ void CameraManager::cameraThreadFunc(CameraConfig config) {
             std::lock_guard<std::mutex> lock(m_digitMutex);
             m_digitResult.frame = displayFrame;
             m_digitResult.fps = currentFps;
+            m_digitResult.success = !lastDetections.empty();
         } else {
             std::lock_guard<std::mutex> lock(m_beanMutex);
             m_beanResult.frame = displayFrame;
             m_beanResult.fps = currentFps;
+            m_beanResult.success = !lastDetections.empty();
         }
 
         frameCounter++;
