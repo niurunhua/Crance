@@ -79,6 +79,10 @@ void Detector::startAsync(const cv::Mat& frame) {
 
     if (frame.empty()) return;
 
+    // 保存原始帧尺寸
+    m_async_frame_width = frame.cols;
+    m_async_frame_height = frame.rows;
+
     try {
         // 预处理：缩放并归一化
         cv::Mat blob;
@@ -121,8 +125,8 @@ bool Detector::getAsyncResults(std::vector<Detection>& detections) {
         // 获取输出
         auto output_tensor = m_async_infer_request.get_output_tensor();
 
-        // 创建临时帧用于后处理 (尺寸信息)
-        cv::Mat temp_frame(m_netHeight, m_netWidth, CV_8UC3);
+        // 使用保存的原始帧尺寸进行后处理
+        cv::Mat temp_frame(m_async_frame_height, m_async_frame_width, CV_8UC3);
 
         // 后处理
         postprocess(temp_frame, output_tensor, detections);

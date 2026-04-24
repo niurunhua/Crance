@@ -74,6 +74,10 @@ private:
     std::mutex m_async_mutex;
     std::vector<Detection> m_async_results;
     bool m_has_async_result{false};
+
+    // 保存原始帧尺寸用于异步推理后处理
+    int m_async_frame_width{0};
+    int m_async_frame_height{0};
 };
 
 #endif
