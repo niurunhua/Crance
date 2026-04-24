@@ -167,14 +167,14 @@ void CameraManager::cameraThreadFunc(CameraConfig config) {
         // 暖机：等待画面稳定
         cv::Mat testFrame;
         bool foundValidFrame = false;
-        for (int attempt = 0; attempt < 30; ++attempt) {
+        for (int attempt = 0; attempt < 10; ++attempt) {
             if (cap.read(testFrame) && !testFrame.empty()) {
                 std::cout << "相机 " << config.cameraIndex << " 就绪: "
                           << testFrame.cols << "x" << testFrame.rows << std::endl;
                 foundValidFrame = true;
                 break;
             }
-            std::this_thread::sleep_for(std::chrono::milliseconds(30));
+            std::this_thread::sleep_for(std::chrono::milliseconds(20));
         }
 
         if (!foundValidFrame) {
@@ -251,8 +251,8 @@ void CameraManager::cameraThreadFunc(CameraConfig config) {
                     if (!detections.empty()) {
                         lastDetections = detections;
 
-                        // 自动标注 (仅豆子相机)
-                        if (config.type == CAMERA_BEAN && m_autoLabeler) {
+                        // 自动标注
+                        if (m_autoLabeler) {
                             int saved = m_autoLabeler->process(displayFrame, detections);
                             if (saved > 0) {
                                 std::cout << "[自动标注] 保存 " << saved << " 个检测" << std::endl;

@@ -111,11 +111,11 @@ uint8_t DataTransmitter::calculateChecksum(const uint8_t* data, size_t length) c
 
 // 打印数据包到终端（仅在调试模式下使用）
 void DataTransmitter::printToTerminal(const DataPacket& packet, const std::vector<uint8_t>& hexData) const {
-    // 不打印，避免阻塞
-    // 如需调试，取消下面的注释
-    /*
-    std::cout << "dx:" << packet.dx << " dy:" << packet.dy << std::endl;
-    */
+    // 调试输出：显示发送的数据
+    std::cout << "[串口] " << getSourceName(packet.sourceId)
+              << " 类别:" << (int)packet.classId
+              << " dx:" << packet.dx
+              << " dy:" << packet.dy << std::endl;
 }
 
 // 获取数据源名称
