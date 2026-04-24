@@ -42,6 +42,7 @@ namespace Config {
     inline constexpr int SCREEN_CENTER_Y = INPUT_HEIGHT / 2;  // 屏幕中心Y
     inline const std::string SERIAL_PORT = "COM3";  // 串口号
     inline constexpr int SERIAL_BAUD = 115200;      // 波特率
+    inline constexpr bool SERIAL_DEBUG_OUTPUT = true;  // 串口调试输出开关
 }
 
 #endif

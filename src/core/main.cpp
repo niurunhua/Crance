@@ -184,6 +184,8 @@ int main(int argc, char** argv) {
         } else if (key == 'd') {  // 切换调试信息
             showDebugInfo = !showDebugInfo;
             std::cout << (showDebugInfo ? "显示" : "隐藏") << "调试信息" << std::endl;
+        } else if (key == 'p') {  // 切换终端输出
+            cameraManager.toggleTerminalOutput();
         } else if (key == 't') {  // 截图
             static int captureCount = 0;
             std::string filename = "capture_" + std::to_string(captureCount++) + ".png";

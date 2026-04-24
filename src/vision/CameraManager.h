@@ -102,6 +102,16 @@ public:
     void setDebugMode(bool digitEnabled, bool beanEnabled);
 
     /**
+     * @brief 切换终端输出开关
+     */
+    void toggleTerminalOutput();
+
+    /**
+     * @brief 获取终端输出状态
+     */
+    bool isTerminalOutputEnabled() const;
+
+    /**
      * @brief 检查相机是否运行正常
      * @param type 相机类型
      * @return true 相机正常运行，false 相机故障或未启用

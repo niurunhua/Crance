@@ -1,5 +1,6 @@
 #include "DataTransmitter.h"
 #include "SerialPort.h"
+#include "../core/Config.h"
 #include <iostream>
 #include <iomanip>
 #include <sstream>
@@ -7,7 +8,8 @@
 // 构造函数
 DataTransmitter::DataTransmitter()
     : m_serialConnected(false)
-    , m_debugMode(false) {
+    , m_debugMode(false)
+    , m_terminalOutputEnabled(Config::SERIAL_DEBUG_OUTPUT) {
 }
 
 // 析构函数
@@ -55,20 +57,24 @@ bool DataTransmitter::sendData(uint8_t sourceId, uint8_t classId, int16_t dx, in
     if (m_serialConnected && m_serialPort && m_serialPort->isOpen()) {
         int bytesSent = m_serialPort->send(buffer, 11);
         if (bytesSent == 11) {
-            // 如果调试模式启用，也打印到终端
-            if (m_debugMode) {
+            // 如果终端输出启用，打印到终端
+            if (m_terminalOutputEnabled || m_debugMode) {
                 printToTerminal(packet, hexData);
             }
             return true;
         } else {
             std::cerr << "串口发送失败，发送了 " << bytesSent << "/11 字节" << std::endl;
-            printToTerminal(packet, hexData);  // 失败时也打印
+            if (m_terminalOutputEnabled) {
+                printToTerminal(packet, hexData);
+            }
             return false;
         }
     } else {
-        // 串口未连接，打印到终端
-        printToTerminal(packet, hexData);
-        return true;  // 视为成功（因为已经打印）
+        // 串口未连接，根据开关决定是否打印到终端
+        if (m_terminalOutputEnabled) {
+            printToTerminal(packet, hexData);
+        }
+        return true;
     }
 }
 
@@ -168,4 +174,15 @@ void DataTransmitter::closeSerial() {
 void DataTransmitter::setDebugMode(bool enabled) {
     m_debugMode = enabled;
     std::cout << "串口调试模式 " << (enabled ? "启用" : "禁用") << std::endl;
+}
+
+// 切换终端输出开关
+void DataTransmitter::toggleTerminalOutput() {
+    m_terminalOutputEnabled = !m_terminalOutputEnabled;
+    std::cout << "终端输出 " << (m_terminalOutputEnabled ? "启用" : "禁用") << std::endl;
+}
+
+// 获取终端输出状态
+bool DataTransmitter::isTerminalOutputEnabled() const {
+    return m_terminalOutputEnabled;
 }

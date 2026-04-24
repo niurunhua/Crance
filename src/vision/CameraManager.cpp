@@ -323,6 +323,19 @@ void CameraManager::setDebugMode(bool digitEnabled, bool beanEnabled) {
               << ", 豆子: " << (beanEnabled ? "启用" : "禁用") << std::endl;
 }
 
+void CameraManager::toggleTerminalOutput() {
+    if (m_transmitter) {
+        m_transmitter->toggleTerminalOutput();
+    }
+}
+
+bool CameraManager::isTerminalOutputEnabled() const {
+    if (m_transmitter) {
+        return m_transmitter->isTerminalOutputEnabled();
+    }
+    return false;
+}
+
 bool CameraManager::isCameraHealthy(CameraType type) const {
     return type == CAMERA_DIGIT ? m_digitHealthy.load() : m_beanHealthy.load();
 }

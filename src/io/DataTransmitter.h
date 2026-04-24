@@ -83,6 +83,16 @@ public:
      */
     void setDebugMode(bool enabled);
 
+    /**
+     * @brief 切换终端输出开关
+     */
+    void toggleTerminalOutput();
+
+    /**
+     * @brief 获取终端输出状态
+     */
+    bool isTerminalOutputEnabled() const;
+
 private:
     /**
      * @brief 构建11字节协议帧
@@ -131,6 +141,7 @@ private:
     // 配置
     bool m_serialConnected;
     bool m_debugMode;
+    bool m_terminalOutputEnabled;  // 终端输出开关
 
     // 协议常量
     static const uint8_t HEADER1 = 0x55;
