@@ -15,9 +15,17 @@ Detector::Detector(const std::string& modelPath,
       m_threshold(Config::THRESHOLD), m_minArea(Config::MIN_AREA),
       m_useWhiteRegionDetection(useWhiteRegionDetection) {}
 
+Detector::~Detector() {
+    m_running = false;
+    m_queue_cv.notify_all();
+    if (m_inference_thread.joinable()) {
+        m_inference_thread.join();
+    }
+}
+
 bool Detector::init() {
     try {
-        std::cout << "Loading model: " << m_modelPath << std::endl;
+        std::cout << "加载模型: " << m_modelPath << std::endl;
 
         // 加载ONNX模型
         m_model = m_core.read_model(m_modelPath);
@@ -25,7 +33,7 @@ bool Detector::init() {
         auto outputs = m_model->outputs();
 
         if (inputs.empty() || outputs.empty()) {
-            std::cerr << "Model has no inputs or outputs!" << std::endl;
+            std::cerr << "模型没有输入或输出!" << std::endl;
             return false;
         }
 
@@ -40,7 +48,7 @@ bool Detector::init() {
         m_compiled_model = m_core.compile_model(m_model, "CPU");
         m_infer_request = m_compiled_model.create_infer_request();
 
-        std::cout << "OpenVINO model loaded on CPU" << std::endl;
+        std::cout << "OpenVINO模型已加载到CPU" << std::endl;
 
         // 加载类别名称
         if (!m_classesFile.empty()) {
@@ -59,13 +67,80 @@ bool Detector::init() {
             }
         }
 
-        std::cout << "Detector initialized: " << m_classNames.size() << " classes" << std::endl;
+        std::cout << "检测器初始化完成: " << m_classNames.size() << " 个类别" << std::endl;
+
+        // 启动异步推理线程
+        m_running = true;
+        m_inference_thread = std::thread(&Detector::inferenceThreadFunc, this);
+
         return true;
 
     } catch (const std::exception& e) {
-        std::cerr << "OpenVINO init failed: " << e.what() << std::endl;
+        std::cerr << "OpenVINO初始化失败: " << e.what() << std::endl;
         return false;
     }
+}
+
+// 异步推理线程函数
+void Detector::inferenceThreadFunc() {
+    while (m_running) {
+        InferenceRequest req;
+        {
+            std::unique_lock<std::mutex> lock(m_queue_mutex);
+            m_queue_cv.wait(lock, [this] {
+                return !m_request_queue.empty() || !m_running;
+            });
+
+            if (!m_running) return;
+
+            if (m_request_queue.empty()) continue;
+
+            req = m_request_queue.front();
+            m_request_queue.pop();
+        }
+
+        // 执行推理
+        std::vector<Detection> detections;
+        detectROI(req.frame, req.roi, detections);
+
+        // 保存结果
+        {
+            std::lock_guard<std::mutex> lock(m_result_mutex);
+            m_latest_detections = detections;
+            m_has_new_result = true;
+        }
+
+        // 调用回调
+        if (req.callback) {
+            req.callback(detections);
+        }
+    }
+}
+
+// 异步检测
+void Detector::detectAsync(const cv::Mat& frame,
+                           const cv::Rect& roi,
+                           std::function<void(const std::vector<Detection>&)> callback) {
+    {
+        std::lock_guard<std::mutex> lock(m_queue_mutex);
+        InferenceRequest req;
+        req.frame = frame.clone();
+        req.roi = roi;
+        req.callback = callback;
+        m_request_queue.push(req);
+    }
+    m_queue_cv.notify_one();
+}
+
+// 获取最新检测结果
+bool Detector::getLatestDetections(std::vector<Detection>& detections) {
+    std::lock_guard<std::mutex> lock(m_result_mutex);
+    if (m_has_new_result) {
+        detections = m_latest_detections;
+        m_has_new_result = false;
+        return true;
+    }
+    return false;
 }
 
 // 后处理：解析模型输出
@@ -245,14 +320,16 @@ void Detector::detectROI(const cv::Mat& frame, const cv::Rect& roi, std::vector<
         }
 
     } catch (const std::exception& e) {
-        std::cerr << "Inference error: " << e.what() << std::endl;
+        std::cerr << "推理错误: " << e.what() << std::endl;
     }
 }
 
 void Detector::drawDetections(cv::Mat& frame, const std::vector<Detection>& detections) {
     for (const auto& det : detections) {
+        // 绘制检测框
         cv::rectangle(frame, det.box, cv::Scalar(0, 255, 0), 2);
 
+        // 获取类别名称
         std::string className = (det.classId >= 0 && det.classId < (int)m_classNames.size())
             ? m_classNames[det.classId] : "Unknown";
         std::string label = className + " " + std::to_string(det.confidence).substr(0, 4);

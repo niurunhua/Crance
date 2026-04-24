@@ -10,11 +10,11 @@
 // 全局运行标志
 std::atomic<bool> g_running{true};
 
+// 信号处理函数
 void signalHandler(int signal) {
     std::cout << "接收到信号 " << signal << "，正在关闭程序..." << std::endl;
     g_running = false;
 }
-
 
 int main(int argc, char** argv) {
     // 设置控制台编码为UTF-8
@@ -33,24 +33,24 @@ int main(int argc, char** argv) {
     // 配置数字相机
     CameraConfig digitConfig;
     digitConfig.type = CAMERA_DIGIT;
-    digitConfig.cameraIndex = Config::DIGIT_CAMERA_ID;      // 数字相机索引
+    digitConfig.cameraIndex = Config::DIGIT_CAMERA_ID;
     digitConfig.modelPath = Config::MODEL_PATH;
     digitConfig.classesFile = Config::CLASSES_FILE;
     digitConfig.enabled = true;
-    digitConfig.skipFrames = Config::DIGIT_SKIP_FRAMES;     // 跳帧数
-    digitConfig.sourceId = Config::DIGIT_SOURCE_ID;         // 数据源ID
-    digitConfig.exposure = Config::DIGIT_EXPOSURE;          // 曝光值
+    digitConfig.skipFrames = Config::DIGIT_SKIP_FRAMES;
+    digitConfig.sourceId = Config::DIGIT_SOURCE_ID;
+    digitConfig.exposure = Config::DIGIT_EXPOSURE;
 
     // 配置豆子相机
     CameraConfig beanConfig;
     beanConfig.type = CAMERA_BEAN;
-    beanConfig.cameraIndex = Config::BEAN_CAMERA_ID;        // 豆子相机索引
-    beanConfig.modelPath = Config::MODEL_PATH;              
+    beanConfig.cameraIndex = Config::BEAN_CAMERA_ID;
+    beanConfig.modelPath = Config::MODEL_PATH;
     beanConfig.classesFile = Config::CLASSES_FILE;
     beanConfig.enabled = true;
-    beanConfig.skipFrames = Config::BEAN_SKIP_FRAMES;       // 跳帧数
-    beanConfig.sourceId = Config::BEAN_SOURCE_ID;           // 数据源ID
-    beanConfig.exposure = Config::BEAN_EXPOSURE;            // 曝光值
+    beanConfig.skipFrames = Config::BEAN_SKIP_FRAMES;
+    beanConfig.sourceId = Config::BEAN_SOURCE_ID;
+    beanConfig.exposure = Config::BEAN_EXPOSURE;
 
     CameraManager cameraManager;
 
@@ -69,7 +69,7 @@ int main(int argc, char** argv) {
     std::cout << "  系统运行中..." << std::endl;
     std::cout << std::endl;
 
-    // 创建窗口
+    // 创建显示窗口
     const std::string digitWindow = "Digit Camera";
     const std::string beanWindow = "Bean Camera";
     cv::namedWindow(digitWindow, cv::WINDOW_NORMAL);
@@ -77,7 +77,7 @@ int main(int argc, char** argv) {
     cv::resizeWindow(digitWindow, Config::INPUT_WIDTH, Config::INPUT_HEIGHT);
     cv::resizeWindow(beanWindow, Config::INPUT_WIDTH, Config::INPUT_HEIGHT);
 
-    // 调试信息显示控制
+    // 调试信息显示开关
     bool showDebugInfo = true;
 
     // 主显示循环
@@ -93,11 +93,10 @@ int main(int argc, char** argv) {
         // 数字相机显示
         bool digitHealthy = cameraManager.isCameraHealthy(CAMERA_DIGIT);
         if (digitHealthy && hasDigit) {
-            // 相机健康且抓到了帧，无论检测是否成功都显示图像
             if (!digitResult.frame.empty()) {
-                digitDisplay = digitResult.frame;  // 不clone，直接引用
+                digitDisplay = digitResult.frame;
             } else {
-                // 保底创建黑底图像
+                // 创建黑底图像
                 digitDisplay = cv::Mat::zeros(Config::INPUT_HEIGHT, Config::INPUT_WIDTH, CV_8UC3);
                 cv::putText(digitDisplay, "Digit Camera: No Frame",
                            cv::Point(50, Config::INPUT_HEIGHT / 2),
@@ -106,7 +105,6 @@ int main(int argc, char** argv) {
 
             // 绘制调试信息
             if (showDebugInfo && !digitDisplay.empty()) {
-                // 显示FPS信息
                 if (digitResult.fps > 0) {
                     std::string fpsText = "Digit FPS: " + std::to_string(static_cast<int>(digitResult.fps));
                     cv::putText(digitDisplay, fpsText,
@@ -114,14 +112,13 @@ int main(int argc, char** argv) {
                                cv::FONT_HERSHEY_SIMPLEX, 0.5, cv::Scalar(0, 255, 255), 1);
                 }
 
-                // 显示检测状态
                 std::string statusText = digitResult.success ? "Detection: OK" : "Detection: No Target";
                 cv::putText(digitDisplay, statusText,
                            cv::Point(10, digitDisplay.rows - 10),
                            cv::FONT_HERSHEY_SIMPLEX, 0.5, cv::Scalar(255, 255, 255), 1);
             }
         } else {
-            // 相机不健康或无结果，显示离线消息
+            // 相机离线
             digitDisplay = cv::Mat::zeros(Config::INPUT_HEIGHT, Config::INPUT_WIDTH, CV_8UC3);
             cv::putText(digitDisplay, digitHealthy ? "Digit Camera: Initializing..." : "Digit Camera: Offline",
                        cv::Point(50, Config::INPUT_HEIGHT / 2),
@@ -131,11 +128,10 @@ int main(int argc, char** argv) {
         // 豆子相机显示
         bool beanHealthy = cameraManager.isCameraHealthy(CAMERA_BEAN);
         if (beanHealthy && hasBean) {
-            // 相机健康且抓到了帧，无论检测是否成功都显示图像
             if (!beanResult.frame.empty()) {
-                beanDisplay = beanResult.frame;  // 不clone，直接引用
+                beanDisplay = beanResult.frame;
             } else {
-                // 保底：创建黑底图像
+                // 创建黑底图像
                 beanDisplay = cv::Mat::zeros(Config::INPUT_HEIGHT, Config::INPUT_WIDTH, CV_8UC3);
                 cv::putText(beanDisplay, "Bean Camera: No Frame",
                            cv::Point(50, Config::INPUT_HEIGHT / 2),
@@ -144,7 +140,6 @@ int main(int argc, char** argv) {
 
             // 绘制调试信息
             if (showDebugInfo && !beanDisplay.empty()) {
-                // 显示FPS信息
                 if (beanResult.fps > 0) {
                     std::string fpsText = "Bean FPS: " + std::to_string(static_cast<int>(beanResult.fps));
                     cv::putText(beanDisplay, fpsText,
@@ -152,21 +147,20 @@ int main(int argc, char** argv) {
                                cv::FONT_HERSHEY_SIMPLEX, 0.5, cv::Scalar(0, 255, 255), 1);
                 }
 
-                // 显示检测状态
                 std::string statusText = beanResult.success ? "Detection: OK" : "Detection: No Target";
                 cv::putText(beanDisplay, statusText,
                            cv::Point(10, beanDisplay.rows - 10),
                            cv::FONT_HERSHEY_SIMPLEX, 0.5, cv::Scalar(255, 255, 255), 1);
             }
         } else {
-            // 相机不健康或无结果，显示离线消息
+            // 相机离线
             beanDisplay = cv::Mat::zeros(Config::INPUT_HEIGHT, Config::INPUT_WIDTH, CV_8UC3);
             cv::putText(beanDisplay, beanHealthy ? "Bean Camera: Initializing..." : "Bean Camera: Offline",
                        cv::Point(50, Config::INPUT_HEIGHT / 2),
                        cv::FONT_HERSHEY_SIMPLEX, 1.0, cv::Scalar(0, 0, 255), 2);
         }
 
-        // 独立显示到各自窗口
+        // 显示图像
         if (!digitDisplay.empty()) {
             cv::imshow(digitWindow, digitDisplay);
         }
@@ -176,21 +170,21 @@ int main(int argc, char** argv) {
 
         // 处理键盘输入
         int key = cv::waitKey(1);
-        if (key == 27) { // ESC键
+        if (key == 27) {  // ESC键退出
             g_running = false;
             break;
-        } else if (key == '1') { // 启用/禁用数字相机
+        } else if (key == '1') {  // 切换数字相机
             bool enabled = cameraManager.isCameraHealthy(CAMERA_DIGIT);
             cameraManager.setDebugMode(!enabled, cameraManager.isCameraHealthy(CAMERA_BEAN));
             std::cout << (enabled ? "禁用" : "启用") << "数字相机" << std::endl;
-        } else if (key == '2') { // 启用/禁用豆子相机
+        } else if (key == '2') {  // 切换豆子相机
             bool enabled = cameraManager.isCameraHealthy(CAMERA_BEAN);
             cameraManager.setDebugMode(cameraManager.isCameraHealthy(CAMERA_DIGIT), !enabled);
             std::cout << (enabled ? "禁用" : "启用") << "豆子相机" << std::endl;
-        } else if (key == 'd') { // 切换调试信息
+        } else if (key == 'd') {  // 切换调试信息
             showDebugInfo = !showDebugInfo;
             std::cout << (showDebugInfo ? "显示" : "隐藏") << "调试信息" << std::endl;
-        } else if (key == 't') { // 截取当前帧
+        } else if (key == 't') {  // 截图
             static int captureCount = 0;
             std::string filename = "capture_" + std::to_string(captureCount++) + ".png";
             if (hasDigit) {
@@ -210,9 +204,9 @@ int main(int argc, char** argv) {
     // 关闭所有窗口
     cv::destroyAllWindows();
 
-    std::cout << " " << std::endl;
+    std::cout << std::endl;
     std::cout << "     程序退出" << std::endl;
-    std::cout << " " << std::endl;
+    std::cout << std::endl;
 
     return 0;
 }

@@ -243,27 +243,32 @@ void CameraManager::cameraThreadFunc(CameraConfig config) {
             lastFpsTime = currentTime;
         }
 
-        // 目标检测 (按间隔帧数)
+        // 异步目标检测
         if (frameCounter % Config::INFERENCE_INTERVAL == 0 && detector) {
+            // 尝试获取最新检测结果
             std::vector<Detection> detections;
-            detector->detect(displayFrame, detections);
-            if (!detections.empty()) {
-                lastDetections = detections;
-                noDetectionFrames = 0;
+            if (detector->getLatestDetections(detections)) {
+                if (!detections.empty()) {
+                    lastDetections = detections;
+                    noDetectionFrames = 0;
 
-                // 自动标注 (仅豆子相机)
-                if (config.type == CAMERA_BEAN && m_autoLabeler) {
-                    int saved = m_autoLabeler->process(displayFrame, detections);
-                    if (saved > 0) {
-                        std::cout << "[自动标注] 保存 " << saved << " 个检测" << std::endl;
+                    // 自动标注 (仅豆子相机)
+                    if (config.type == CAMERA_BEAN && m_autoLabeler) {
+                        int saved = m_autoLabeler->process(displayFrame, detections);
+                        if (saved > 0) {
+                            std::cout << "[自动标注] 保存 " << saved << " 个检测" << std::endl;
+                        }
+                    }
+                } else {
+                    noDetectionFrames++;
+                    if (noDetectionFrames >= maxNoDetectionFrames / 10) {
+                        lastDetections.clear();
                     }
                 }
-            } else {
-                noDetectionFrames++;
-                if (noDetectionFrames >= maxNoDetectionFrames / 10) {
-                    lastDetections.clear();
-                }
             }
+
+            // 发起新的异步推理请求
+            detector->detectAsync(displayFrame, cv::Rect(0, 0, displayFrame.cols, displayFrame.rows), nullptr);
         }
 
         // 绘制检测结果并发送数据
