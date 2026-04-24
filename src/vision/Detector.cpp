@@ -15,14 +15,6 @@ Detector::Detector(const std::string& modelPath,
       m_threshold(Config::THRESHOLD), m_minArea(Config::MIN_AREA),
       m_useWhiteRegionDetection(useWhiteRegionDetection) {}
 
-Detector::~Detector() {
-    m_running = false;
-    m_queue_cv.notify_all();
-    if (m_inference_thread.joinable()) {
-        m_inference_thread.join();
-    }
-}
-
 bool Detector::init() {
     try {
         std::cout << "加载模型: " << m_modelPath << std::endl;
@@ -46,7 +38,12 @@ bool Detector::init() {
 
         // 编译模型 (Intel CPU使用oneDNN优化)
         m_compiled_model = m_core.compile_model(m_model, "CPU");
+
+        // 创建同步推理请求
         m_infer_request = m_compiled_model.create_infer_request();
+
+        // 创建异步推理请求 (独立)
+        m_async_infer_request = m_compiled_model.create_infer_request();
 
         std::cout << "OpenVINO模型已加载到CPU" << std::endl;
 
@@ -68,11 +65,6 @@ bool Detector::init() {
         }
 
         std::cout << "检测器初始化完成: " << m_classNames.size() << " 个类别" << std::endl;
-
-        // 启动异步推理线程
-        m_running = true;
-        m_inference_thread = std::thread(&Detector::inferenceThreadFunc, this);
-
         return true;
 
     } catch (const std::exception& e) {
@@ -81,66 +73,68 @@ bool Detector::init() {
     }
 }
 
-// 异步推理线程函数
-void Detector::inferenceThreadFunc() {
-    while (m_running) {
-        InferenceRequest req;
-        {
-            std::unique_lock<std::mutex> lock(m_queue_mutex);
-            m_queue_cv.wait(lock, [this] {
-                return !m_request_queue.empty() || !m_running;
-            });
+// 启动异步推理
+void Detector::startAsync(const cv::Mat& frame) {
+    std::lock_guard<std::mutex> lock(m_async_mutex);
 
-            if (!m_running) return;
+    if (frame.empty()) return;
 
-            if (m_request_queue.empty()) continue;
+    try {
+        // 预处理：缩放并归一化
+        cv::Mat blob;
+        cv::resize(frame, blob, cv::Size(m_netWidth, m_netHeight));
+        blob.convertTo(blob, CV_32F, 1.0 / 255.0);
 
-            req = m_request_queue.front();
-            m_request_queue.pop();
+        // 填充输入张量 (NCHW格式)
+        auto input_tensor = m_async_infer_request.get_input_tensor();
+        float* input_data = input_tensor.data<float>();
+        std::vector<cv::Mat> channels(3);
+        cv::split(blob, channels);
+
+        int channel_size = m_netWidth * m_netHeight;
+        for (int c = 0; c < 3; ++c) {
+            memcpy(input_data + c * channel_size, channels[c].data, channel_size * sizeof(float));
         }
 
-        // 执行推理
-        std::vector<Detection> detections;
-        detectROI(req.frame, req.roi, detections);
+        // 启动异步推理
+        m_async_running = true;
+        m_async_infer_request.start_async();
 
-        // 保存结果
-        {
-            std::lock_guard<std::mutex> lock(m_result_mutex);
-            m_latest_detections = detections;
-            m_has_new_result = true;
-        }
-
-        // 调用回调
-        if (req.callback) {
-            req.callback(detections);
-        }
+    } catch (const std::exception& e) {
+        std::cerr << "异步推理启动失败: " << e.what() << std::endl;
+        m_async_running = false;
     }
 }
 
-// 异步检测
-void Detector::detectAsync(const cv::Mat& frame,
-                           const cv::Rect& roi,
-                           std::function<void(const std::vector<Detection>&)> callback) {
-    {
-        std::lock_guard<std::mutex> lock(m_queue_mutex);
-        InferenceRequest req;
-        req.frame = frame.clone();
-        req.roi = roi;
-        req.callback = callback;
-        m_request_queue.push(req);
-    }
-    m_queue_cv.notify_one();
-}
+// 获取异步推理结果
+bool Detector::getAsyncResults(std::vector<Detection>& detections) {
+    std::lock_guard<std::mutex> lock(m_async_mutex);
 
-// 获取最新检测结果
-bool Detector::getLatestDetections(std::vector<Detection>& detections) {
-    std::lock_guard<std::mutex> lock(m_result_mutex);
-    if (m_has_new_result) {
-        detections = m_latest_detections;
-        m_has_new_result = false;
+    if (!m_async_running) {
+        return false;
+    }
+
+    try {
+        // 等待推理完成
+        m_async_infer_request.wait();
+
+        // 获取输出
+        auto output_tensor = m_async_infer_request.get_output_tensor();
+
+        // 创建临时帧用于后处理 (尺寸信息)
+        cv::Mat temp_frame(m_netHeight, m_netWidth, CV_8UC3);
+
+        // 后处理
+        postprocess(temp_frame, output_tensor, detections);
+
+        m_async_running = false;
         return true;
+
+    } catch (const std::exception& e) {
+        std::cerr << "获取异步结果失败: " << e.what() << std::endl;
+        m_async_running = false;
+        return false;
     }
-    return false;
 }
 
 // 后处理：解析模型输出

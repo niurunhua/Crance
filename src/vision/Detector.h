@@ -5,12 +5,8 @@
 #include <vector>
 #include <string>
 #include <chrono>
-#include <thread>
 #include <mutex>
 #include <atomic>
-#include <condition_variable>
-#include <queue>
-#include <functional>
 #include <openvino/openvino.hpp>
 
 // 检测结果结构体
@@ -29,7 +25,7 @@ public:
              int netWidth, int netHeight,
              float confThreshold, float nmsThreshold,
              bool useWhiteRegionDetection = true);
-    ~Detector();
+    ~Detector() = default;
 
     bool init();
 
@@ -37,13 +33,11 @@ public:
     void detect(cv::Mat& frame, std::vector<Detection>& detections);
     void detectROI(const cv::Mat& frame, const cv::Rect& roi, std::vector<Detection>& detections);
 
-    // 异步检测
-    void detectAsync(const cv::Mat& frame,
-                     const cv::Rect& roi,
-                     std::function<void(const std::vector<Detection>&)> callback);
+    // 异步检测 (非阻塞)
+    void startAsync(const cv::Mat& frame);
 
-    // 获取最新的检测结果
-    bool getLatestDetections(std::vector<Detection>& detections);
+    // 获取异步检测结果
+    bool getAsyncResults(std::vector<Detection>& detections);
 
     void drawDetections(cv::Mat& frame, const std::vector<Detection>& detections);
 
@@ -55,9 +49,6 @@ public:
 private:
     void postprocess(const cv::Mat& frame, ov::Tensor& output_tensor, std::vector<Detection>& detections);
     std::vector<cv::Rect> findWhiteRegions(const cv::Mat& frame);
-
-    // 异步推理线程函数
-    void inferenceThreadFunc();
 
     // 模型参数
     std::string m_modelPath, m_classesFile;
@@ -72,27 +63,17 @@ private:
     ov::Core m_core;
     std::shared_ptr<ov::Model> m_model;
     ov::CompiledModel m_compiled_model;
-    ov::InferRequest m_infer_request;
     std::string m_input_name, m_output_name;
 
+    // 同步推理请求
+    ov::InferRequest m_infer_request;
+
     // 异步推理相关
-    std::atomic<bool> m_running{false};
-    std::thread m_inference_thread;
-    std::mutex m_queue_mutex;
-    std::condition_variable m_queue_cv;
-
-    // 请求队列
-    struct InferenceRequest {
-        cv::Mat frame;
-        cv::Rect roi;
-        std::function<void(const std::vector<Detection>&)> callback;
-    };
-    std::queue<InferenceRequest> m_request_queue;
-
-    // 最新检测结果
-    std::mutex m_result_mutex;
-    std::vector<Detection> m_latest_detections;
-    bool m_has_new_result{false};
+    ov::InferRequest m_async_infer_request;  // 独立的异步推理请求
+    std::atomic<bool> m_async_running{false};
+    std::mutex m_async_mutex;
+    std::vector<Detection> m_async_results;
+    bool m_has_async_result{false};
 };
 
 #endif

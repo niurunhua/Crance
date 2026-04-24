@@ -12,7 +12,7 @@ std::atomic<bool> g_running{true};
 
 // 信号处理函数
 void signalHandler(int signal) {
-    std::cout << "接收到信号 " << signal << "，正在关闭程序..." << std::endl;
+    std::cout << "接收到 " << signal << "，正在关闭程序..." << std::endl;
     g_running = false;
 }
 
@@ -57,16 +57,16 @@ int main(int argc, char** argv) {
     // 初始化相机
     std::cout << "正在初始化相机" << std::endl;
     if (!cameraManager.init(digitConfig, beanConfig)) {
-        std::cerr << "错误：相机初始化失败，程序退出" << std::endl;
+        std::cerr << "相机初始化失败，程序退出" << std::endl;
         return -1;
     }
 
     // 启动相机线程
-    std::cout << "正在启动相机线程..." << std::endl;
+    std::cout << "正在启动相机" << std::endl;
     cameraManager.start();
 
     std::cout << std::endl;
-    std::cout << "  系统运行中..." << std::endl;
+    std::cout << "  系统运行" << std::endl;
     std::cout << std::endl;
 
     // 创建显示窗口
@@ -106,7 +106,7 @@ int main(int argc, char** argv) {
             // 绘制调试信息
             if (showDebugInfo && !digitDisplay.empty()) {
                 if (digitResult.fps > 0) {
-                    std::string fpsText = "Digit FPS: " + std::to_string(static_cast<int>(digitResult.fps));
+                    std::string fpsText = "FPS: " + std::to_string(static_cast<int>(digitResult.fps));
                     cv::putText(digitDisplay, fpsText,
                                cv::Point(10, digitDisplay.rows - 30),
                                cv::FONT_HERSHEY_SIMPLEX, 0.5, cv::Scalar(0, 255, 255), 1);
@@ -120,7 +120,7 @@ int main(int argc, char** argv) {
         } else {
             // 相机离线
             digitDisplay = cv::Mat::zeros(Config::INPUT_HEIGHT, Config::INPUT_WIDTH, CV_8UC3);
-            cv::putText(digitDisplay, digitHealthy ? "Digit Camera: Initializing..." : "Digit Camera: Offline",
+            cv::putText(digitDisplay, digitHealthy ? "Camera: Initializing" : "Digit Camera: Offline",
                        cv::Point(50, Config::INPUT_HEIGHT / 2),
                        cv::FONT_HERSHEY_SIMPLEX, 1.0, cv::Scalar(0, 0, 255), 2);
         }
@@ -197,8 +197,8 @@ int main(int argc, char** argv) {
         }
     }
 
-    // 停止相机管理器
-    std::cout << "正在停止相机管理器..." << std::endl;
+    // 停止相机
+    std::cout << "正在停止相机" << std::endl;
     cameraManager.stop();
 
     // 关闭所有窗口
